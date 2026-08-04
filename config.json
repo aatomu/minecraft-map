@@ -7,7 +7,6 @@
     "shading": true,
     "byRegion": false
   },
-  "ExportFileName": "map.png",
   "fallbackColor": {
     "ungenerated": [106, 90, 205, 255],
     "readError": [255, 0, 0, 255],
