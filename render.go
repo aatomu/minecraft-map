@@ -37,6 +37,7 @@ func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, color
 	}
 	defer region.Close()
 
+	missingBlocksSet := make(map[string]struct{})
 	for cz := 0; cz < 32; cz++ {
 		for cx := 0; cx < 32; cx++ {
 			absChunkX := rPos.X*32 + cx
@@ -82,7 +83,8 @@ func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, color
 
 						info, ok := blockColors[cleanName]
 						if !ok {
-							log.Printf("[WARN] Block color not found: %v\n", cleanName)
+							missingBlocksSet[cleanName] = struct{}{}
+
 							if cleanName == "grass_block" || cleanName == "grass_block_snow" {
 								info = BlockColorInfo{Color: [4]uint8{120, 120, 120, 255}, BiomeType: "grass"}
 								ok = true
@@ -144,6 +146,14 @@ func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, color
 				}
 			}
 		}
+	}
+
+	if len(missingBlocksSet) > 0 {
+		var missingList []string
+		for k := range missingBlocksSet {
+			missingList = append(missingList, k)
+		}
+		log.Printf("[WARN] r.%d.%d.mca missing blocks: %v\n", rPos.X, rPos.Z, missingList)
 	}
 
 	return &RegionRenderResult{
