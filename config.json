@@ -1,0 +1,19 @@
+{
+  "regionDir": "/home/atomu/code/other/server/java/shiglimn_1st_1.21.4/world/region",
+  "clientJar": "client.jar",
+  "mapColorJson": "map_color.json",
+  "export": {
+    "dir": "./export",
+    "shading": true,
+    "byRegion": false
+  },
+  "ExportFileName": "map.png",
+  "fallbackColor": {
+    "ungenerated": [106, 90, 205, 255],
+    "readError": [255, 0, 0, 255],
+    "other": [255, 0, 255, 255]
+  },
+  "fallbackId": {
+    "snow": "snow_height2"
+  }
+}
