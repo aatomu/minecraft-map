@@ -45,8 +45,8 @@ var tintResolvers = map[string]tintFunc{
 	"lily_pad":      constTint(0x20, 0x80, 0x30),
 
 	// --- age駆動（茎） ---
-	"melon_stem":            stemTintFromProps,
-	"pumpkin_stem":          stemTintFromProps,
+	"melon_stem_stage7":     stemTintFromProps,
+	"pumpkin_stem_stage7":   stemTintFromProps,
 	"attached_melon_stem":   fixedAgeStemTint(7),
 	"attached_pumpkin_stem": fixedAgeStemTint(7),
 }
@@ -360,16 +360,6 @@ func parseModelJSON(file *zip.File) (*ModelJSON, error) {
 	}
 
 	return &model, nil
-}
-
-func isAir(name string) bool {
-	clean := strings.TrimPrefix(name, "minecraft:")
-	switch clean {
-	case "air", "cave_air", "void_air", "structure_void", "light", "barrier":
-		return true
-	default:
-		return false
-	}
 }
 
 // バイオーム色の適用・乗算ロジック

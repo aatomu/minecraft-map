@@ -24,7 +24,8 @@ type Config struct {
 		ReadError   [4]uint8 `json:"readError"`   // 読み込み/解析エラー
 		Other       [4]uint8 `json:"other"`       // その他(未登録ブロック等)
 	} `json:"fallbackColor"`
-	FallbackId map[string]string `json:"fallbackId"`
+	FallbackBlocks map[string]string `json:"fallbackBlocks"`
+	SuppressBlocks []string          `json:"suppressBlocks"`
 }
 
 type FallbackColors struct {
@@ -107,7 +108,14 @@ func main() {
 			Other:       toRGBA(config.FallBackColor.Other),
 		}
 
-		// 3. config.json の byRegion 設定に基づいて処理を切り替え
+		// 3. suppressBlocksのSet化
+		suppressMap := make(map[string]bool)
+		for _, blockID := range config.SuppressBlocks {
+			clean := strings.TrimPrefix(blockID, "minecraft:")
+			suppressMap[clean] = true
+		}
+
+		// 4. config.json の byRegion 設定に基づいて処理を切り替え
 		if config.Export.ByRegion {
 			log.Println("[INFO] Mode: Exporting individual region maps...")
 			err = exportMapRegion(
@@ -116,6 +124,7 @@ func main() {
 				fallback,
 				colorMap,
 				blockColor,
+				suppressMap,
 				config.Export.Shading,
 				config.Export.Dir,
 			)
@@ -128,6 +137,7 @@ func main() {
 				fallback,
 				colorMap,
 				blockColor,
+				suppressMap,
 				config.Export.Shading,
 				exportPath,
 			)

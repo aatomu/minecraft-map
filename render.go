@@ -19,13 +19,14 @@ import (
 
 // RegionRenderResult は 1 リージョン分のレンダリング結果データ
 type RegionRenderResult struct {
-	Pos       RegionPos
-	Img       *image.RGBA
-	HeightMap []int
+	Pos           RegionPos
+	Img           *image.RGBA
+	HeightMap     []int
+	MissingBlocks []string
 }
 
 // renderRegion は 1 つのリージョン (.mca) を解析し、画像データと高さバッファを返します (ファイル出力は行いません)
-func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, colorMap map[string]image.Image, blockColors map[string]BlockColorInfo) (*RegionRenderResult, error) {
+func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, colorMap map[string]image.Image, blockColors map[string]BlockColorInfo, suppressMap map[string]bool) (*RegionRenderResult, error) {
 	imgSize := 512
 	canvas := image.NewRGBA(image.Rect(0, 0, imgSize, imgSize))
 	heightBuffer := slices.Repeat([]int{math.MinInt}, imgSize*imgSize)
@@ -71,12 +72,12 @@ func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, color
 					for y := chunkBlocks.MaxY; y >= chunkBlocks.MinY; y-- {
 						b := chunkBlocks.GetBlock(lx, y, lz)
 
-						if isAir(b.Name) {
+						if isSuppressedBlock(b.Name, suppressMap) {
 							continue
 						}
 
 						cleanName := strings.TrimPrefix(b.Name, "minecraft:")
-						fallbackId, ok := config.FallbackId[cleanName]
+						fallbackId, ok := config.FallbackBlocks[cleanName]
 						if ok {
 							cleanName = fallbackId
 						}
@@ -84,20 +85,7 @@ func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, color
 						info, ok := blockColors[cleanName]
 						if !ok {
 							missingBlocksSet[cleanName] = struct{}{}
-
-							if cleanName == "grass_block" || cleanName == "grass_block_snow" {
-								info = BlockColorInfo{Color: [4]uint8{120, 120, 120, 255}, BiomeType: "grass"}
-								ok = true
-							} else if strings.Contains(cleanName, "leaves") {
-								info = BlockColorInfo{Color: [4]uint8{120, 120, 120, 255}, BiomeType: "foliage"}
-								ok = true
-							} else if cleanName == "water" {
-								info = BlockColorInfo{Color: [4]uint8{64, 128, 255, 180}, BiomeType: "water"}
-								ok = true
-							} else if cleanName == "lava" {
-								info = BlockColorInfo{Color: [4]uint8{255, 90, 0, 255}, BiomeType: "none"}
-								ok = true
-							}
+							continue
 						}
 
 						if ok {
@@ -148,8 +136,8 @@ func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, color
 		}
 	}
 
+	missingList := []string{}
 	if len(missingBlocksSet) > 0 {
-		var missingList []string
 		for k := range missingBlocksSet {
 			missingList = append(missingList, k)
 		}
@@ -157,14 +145,15 @@ func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, color
 	}
 
 	return &RegionRenderResult{
-		Pos:       rPos,
-		Img:       canvas,
-		HeightMap: heightBuffer,
+		Pos:           rPos,
+		Img:           canvas,
+		HeightMap:     heightBuffer,
+		MissingBlocks: missingList,
 	}, nil
 }
 
 // exportMapRegion は各リージョンを個別の PNG ファイル (例: r.0.0.png) として出力します
-func exportMapRegion(rootDir string, regionList []RegionPos, fallback FallbackColors, colorMap map[string]image.Image, blockColors map[string]BlockColorInfo, shading bool, exportDir string) error {
+func exportMapRegion(rootDir string, regionList []RegionPos, fallback FallbackColors, colorMap map[string]image.Image, blockColors map[string]BlockColorInfo, suppressMap map[string]bool, shading bool, exportDir string) error {
 	if err := os.MkdirAll(exportDir, 0755); err != nil {
 		return fmt.Errorf("failed to create export dir: %w", err)
 	}
@@ -188,7 +177,7 @@ func exportMapRegion(rootDir string, regionList []RegionPos, fallback FallbackCo
 				<-sem
 			}()
 
-			res, err := renderRegion(rootDir, rPos, fallback, colorMap, blockColors)
+			res, err := renderRegion(rootDir, rPos, fallback, colorMap, blockColors, suppressMap)
 			if err != nil {
 				log.Printf("[ERROR] Failed to render r.%d.%d: %v\n", rPos.X, rPos.Z, err)
 				return
@@ -210,7 +199,7 @@ func exportMapRegion(rootDir string, regionList []RegionPos, fallback FallbackCo
 }
 
 // exportMapFull は全リージョンを並列処理後に結合し、1枚の巨大な PNG マップとして出力します
-func exportMapFull(rootDir string, regionList []RegionPos, fallback FallbackColors, colorMap map[string]image.Image, blockColors map[string]BlockColorInfo, shading bool, exportPath string) error {
+func exportMapFull(rootDir string, regionList []RegionPos, fallback FallbackColors, colorMap map[string]image.Image, blockColors map[string]BlockColorInfo, suppressMap map[string]bool, shading bool, exportPath string) error {
 	minRX, minRZ := math.MaxInt, math.MaxInt
 	maxRX, maxRZ := math.MinInt, math.MinInt
 
@@ -240,13 +229,15 @@ func exportMapFull(rootDir string, regionList []RegionPos, fallback FallbackColo
 	canvas := image.NewRGBA(image.Rect(0, 0, imgWidth, imgHeight))
 	fullHeightBuffer := slices.Repeat([]int{math.MinInt}, imgWidth*imgHeight)
 
+	// Parrallel Control
 	numWorkers := runtime.NumCPU()
-	log.Printf("[INFO] Processing full map regions in parallel (%d workers)...\n", numWorkers)
-
-	results := make(chan *RegionRenderResult, len(regionList))
 	sem := make(chan struct{}, numWorkers)
 	var wg sync.WaitGroup
 	var completed int32 = 0
+	log.Printf("[INFO] Processing full map regions in parallel (%d workers)...\n", numWorkers)
+
+	allMissingBlocksSet := make(map[string]struct{})
+	results := make(chan *RegionRenderResult, len(regionList))
 
 	for _, rPos := range regionList {
 		wg.Add(1)
@@ -260,7 +251,7 @@ func exportMapFull(rootDir string, regionList []RegionPos, fallback FallbackColo
 				<-sem
 			}()
 
-			res, err := renderRegion(rootDir, rPos, fallback, colorMap, blockColors)
+			res, err := renderRegion(rootDir, rPos, fallback, colorMap, blockColors, suppressMap)
 			if err == nil {
 				results <- res
 			}
@@ -287,6 +278,22 @@ func exportMapFull(rootDir string, regionList []RegionPos, fallback FallbackColo
 			subIdx := z * 512
 			copy(fullHeightBuffer[fullIdx:fullIdx+512], res.HeightMap[subIdx:subIdx+512])
 		}
+
+		// 3. このリージョンで発生した未登録ブロックを処理
+		for _, blockID := range res.MissingBlocks {
+			allMissingBlocksSet[blockID] = struct{}{}
+		}
+	}
+
+	// 3. 最後に全リージョンの未登録ブロック一覧をログ表示
+	if len(allMissingBlocksSet) > 0 {
+		var globalMissingList []string
+		for k := range allMissingBlocksSet {
+			globalMissingList = append(globalMissingList, k)
+		}
+		// ソートしておくと見やすくなります
+		slices.Sort(globalMissingList)
+		log.Printf("[WARN] All missing color blocks in world (%d types): %v\n", len(globalMissingList), globalMissingList)
 	}
 
 	// 結合後の全体バッファを用いて境目も含めて綺麗にシェーディング
@@ -392,6 +399,16 @@ func blendLayers(layers []color.RGBA) color.RGBA {
 	}
 }
 
+func isSuppressedBlock(name string, suppressMap map[string]bool) bool {
+	clean := strings.TrimPrefix(name, "minecraft:")
+
+	// 1. スキップ対象リストに含まれていれば true
+	if suppressMap[clean] {
+		return true
+	}
+
+	return false
+}
 func savePNG(filePath string, img image.Image) error {
 	f, err := os.Create(filePath)
 	if err != nil {
