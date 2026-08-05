@@ -13,7 +13,7 @@ This image was generated using naturally generated world data from Minecraft Van
 - 地図情報 / Map information
   - リージョンファイル数 / Region files: 104 (range: X[-7..4], Z[-5..4])
   - 画像サイズ / Image size: 6144x5120 px (1block=1px)
-  - 生成時間 / Generation time: 26seconds
+  - 生成時間 / Generation time: 42 seconds
 - 色について / Color information
   - 青紫色: 未読み込みチャンク
   - Blue-purple: unloaded chunks
