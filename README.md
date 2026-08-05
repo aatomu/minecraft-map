@@ -6,6 +6,22 @@
 (English)
 A standalone software application that automatically generates a color palette from the `client.jar` asset and renders a 2D world map in the style of a Minecraft map.
 
+## Example image
+Minecraft Vanilla v1.21.8で自然生成されたワールドデータで出力したイメージです  
+This image was generated using naturally generated world data from Minecraft Vanilla v1.21.8.
+
+- 地図情報 / Map information
+  - リージョンファイル数 / Region files: 104 (range: X[-7..4], Z[-5..4])
+  - 画像サイズ / Image size: 6144x5120 px (1block=1px)
+  - 生成時間 / Generation time: 26seconds
+- 色について / Color information
+  - 青紫色: 未読み込みチャンク
+  - Blue-purple: unloaded chunks
+  - 赤紫色: 未生成チャンク
+  - Read-purple: ungenerated chunks
+
+![](./example_map.png)
+
 ## Development Environment
 Tested with
 - Minecraft Java Edition: 26.1.1
