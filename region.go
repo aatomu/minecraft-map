@@ -14,7 +14,7 @@ import (
 
 // ErrChunkNotGenerated は該当座標のチャンクがまだ生成されていないことを示すセンチネルエラーです。
 // 「読み込みエラー」と区別するために使用します。
-var ErrChunkNotGenerated = errors.New("チャンクは未生成です")
+var ErrChunkNotGenerated = errors.New("chunk has not generated")
 
 type Region struct {
 	file    *os.File
@@ -56,7 +56,7 @@ func (r *Region) ReadChunk(chunkX, chunkZ int) (*ChunkData, error) {
 	locationBuf := make([]byte, 4)
 	if _, err := r.file.ReadAt(locationBuf, tableOffset); err != nil {
 		return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
-			fmt.Errorf("位置テーブルの読み込みエラー: %w", err)
+			fmt.Errorf("Position table read error: %w", err)
 	}
 
 	// 3. オフセット（上位3バイト）とサイズ（下位1バイト）をデコード
@@ -66,12 +66,12 @@ func (r *Region) ReadChunk(chunkX, chunkZ int) (*ChunkData, error) {
 	// 未生成のチャンクチェック（オフセットとサイズが共に0）
 	if sectorOffset == 0 && sectorCount == 0 {
 		return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusNotGenerated},
-			fmt.Errorf("チャンク (%d, %d) %w", chunkX, chunkZ, ErrChunkNotGenerated)
+			fmt.Errorf("chunk (%d, %d): %w", chunkX, chunkZ, ErrChunkNotGenerated)
 	}
 	// セクタ0-1はヘッダー/タイムスタンプ用で予約済み
 	if sectorOffset < 2 {
 		return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
-			fmt.Errorf("不正なセクタオフセットです: %d", sectorOffset)
+			fmt.Errorf("Invalid Sector offset for chunk (%d, %d): %d", chunkX, chunkZ, sectorOffset)
 	}
 
 	// 4. 実際のファイル内バイト位置へジャンプ (1セクタ = 4096バイト)
@@ -81,7 +81,7 @@ func (r *Region) ReadChunk(chunkX, chunkZ int) (*ChunkData, error) {
 	headerBuf := make([]byte, 5)
 	if _, err := r.file.ReadAt(headerBuf, chunkByteOffset); err != nil {
 		return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
-			fmt.Errorf("チャンクヘッダーの読み込みエラー: %w", err)
+			fmt.Errorf("Chunk header read error for chunk (%d, %d): %w", chunkX, chunkZ, err)
 	}
 
 	dataLength := binary.BigEndian.Uint32(headerBuf[0:4])
@@ -98,18 +98,25 @@ func (r *Region) ReadChunk(chunkX, chunkZ int) (*ChunkData, error) {
 		compressedBuf, err = r.readMCC(chunkX, chunkZ)
 		if err != nil {
 			return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
-				fmt.Errorf("外部MCCファイルの読み込みエラー: %w", err)
+				fmt.Errorf("Error loading external .mcc file for chunk (%d, %d): %w", chunkX, chunkZ, err)
 		}
 	} else {
 		if dataLength <= 1 {
 			return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
-				fmt.Errorf("不正なデータ長です: %d", dataLength)
+				fmt.Errorf("Invalid data length: %d for chunk (%d, %d)", chunkX, chunkZ, dataLength)
 		}
+
+		maxAllowedSize := uint32(sectorCount*4096 - 5)
+		if dataLength-1 > maxAllowedSize {
+			return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
+				fmt.Errorf("data length %d exceeds sector bounds (%d) for chunk (%d, %d)", dataLength-1, maxAllowedSize, chunkX, chunkZ)
+		}
+
 		compressedDataSize := dataLength - 1
 		compressedBuf = make([]byte, compressedDataSize)
 		if _, err := r.file.ReadAt(compressedBuf, chunkByteOffset+5); err != nil {
 			return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
-				fmt.Errorf("圧縮データの読み込みエラー: %w", err)
+				fmt.Errorf("Error loading compressed data for chunk (%d, %d): %w", chunkX, chunkZ, err)
 		}
 	}
 
@@ -121,27 +128,35 @@ func (r *Region) ReadChunk(chunkX, chunkZ int) (*ChunkData, error) {
 		gz, err := gzip.NewReader(bytes.NewReader(compressedBuf))
 		if err != nil {
 			return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
-				fmt.Errorf("GZip解凍エラー: %w", err)
+				fmt.Errorf("failed to initialize gzip reader for chunk (%d, %d): %w", chunkX, chunkZ, err)
 		}
 		defer gz.Close()
+
 		uncompressedData, err = io.ReadAll(gz)
 		if err != nil {
 			return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
-				fmt.Errorf("GZip解凍エラー: %w", err)
+				fmt.Errorf("failed to decompress gzip payload for chunk (%d, %d): %w", chunkX, chunkZ, err)
 		}
 
-	case 2: // Zlib (Minecraft標準)
+	case 2: // Zlib (Minecraft Standard)
 		var err error
 		uncompressedData, err = decompressZlib(compressedBuf)
 		if err != nil {
+			// 【修正ポイント2】EOFエラー（データ途絶）は破損チャンクとして判定
+			if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+				return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
+					fmt.Errorf("corrupted zlib payload (truncated data) for chunk (%d, %d): %w", chunkX, chunkZ, err)
+			}
 			return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
-				fmt.Errorf("Zlib解凍エラー: %w", err)
+				fmt.Errorf("failed to decompress zlib payload for chunk (%d, %d): %w", chunkX, chunkZ, err)
 		}
-	case 3: // 非圧縮
+
+	case 3: // Uncompressed
 		uncompressedData = compressedBuf
+
 	default:
 		return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
-			fmt.Errorf("未知の圧縮方式です: %d", actualCompressionType)
+			fmt.Errorf("unsupported compression type %d for chunk (%d, %d)", actualCompressionType, chunkX, chunkZ)
 	}
 
 	return &ChunkData{
@@ -160,25 +175,25 @@ func (r *Region) readMCC(chunkX, chunkZ int) ([]byte, error) {
 	mccPath := filepath.Join(r.rootDir, fmt.Sprintf("c.%d.%d.mcc", chunkX, chunkZ))
 	mccFile, err := os.Open(mccPath)
 	if err != nil {
-		return nil, fmt.Errorf("MCCファイルを開けませんでした: %w", err)
+		return nil, fmt.Errorf("failed to open .mcc file for chunk (%d, %d): %w", chunkX, chunkZ, err)
 	}
 	defer mccFile.Close()
 
 	// MCCファイルも先頭5バイトにヘッダー（データ長4B + 圧縮方式1B）を持ちます
 	headerBuf := make([]byte, 5)
 	if _, err := io.ReadFull(mccFile, headerBuf); err != nil {
-		return nil, fmt.Errorf("MCCヘッダー読み込みエラー: %w", err)
+		return nil, fmt.Errorf("failed to read .mcc header for chunk (%d, %d): %w", chunkX, chunkZ, err)
 	}
 
 	dataLength := binary.BigEndian.Uint32(headerBuf[0:4])
 	if dataLength <= 1 {
-		return nil, fmt.Errorf("不正なMCCデータ長です: %d", dataLength)
+		return nil, fmt.Errorf("invalid .mcc data length %d for chunk (%d, %d)", dataLength, chunkX, chunkZ)
 	}
 
 	// ヘッダー直後から残りの圧縮データ部分を一括読み込み
 	compressedBuf := make([]byte, dataLength-1)
 	if _, err := io.ReadFull(mccFile, compressedBuf); err != nil {
-		return nil, fmt.Errorf("MCC圧縮データ読み込みエラー: %w", err)
+		return nil, fmt.Errorf("failed to read .mcc compressed payload for chunk (%d, %d): %w", chunkX, chunkZ, err)
 	}
 
 	return compressedBuf, nil

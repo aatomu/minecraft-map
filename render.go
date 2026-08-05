@@ -48,6 +48,7 @@ func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, color
 			if err != nil {
 				switch chunkData.Status {
 				case ChunkStatusError:
+					log.Printf("[WARN] %d,%d in r.%d.%d.mca read error: %v\n", absChunkX, absChunkZ, rPos.X, rPos.Z, err)
 					fillChunkColor(canvas, absChunkX, absChunkZ, rPos.X, rPos.Z, fallback.ReadError)
 				case ChunkStatusNotGenerated:
 					fillChunkColor(canvas, absChunkX, absChunkZ, rPos.X, rPos.Z, fallback.Ungenerated)
@@ -173,7 +174,7 @@ func exportMapRegion(rootDir string, regionList []RegionPos, fallback FallbackCo
 			defer wg.Done()
 			defer func() {
 				c := atomic.AddInt32(&completed, 1)
-				log.Printf("[%d/%d] r.%d.%d.png exported.\n", c, len(regionList), rPos.X, rPos.Z)
+				log.Printf("[INFO] [%d/%d] r.%d.%d.png exported.\n", c, len(regionList), rPos.X, rPos.Z)
 				<-sem
 			}()
 
@@ -247,7 +248,7 @@ func exportMapFull(rootDir string, regionList []RegionPos, fallback FallbackColo
 			defer wg.Done()
 			defer func() {
 				c := atomic.AddInt32(&completed, 1)
-				log.Printf("[%d/%d] r.%d.%d.mca rendered.\n", c, len(regionList), rPos.X, rPos.Z)
+				log.Printf("[INFO] [%d/%d] r.%d.%d.mca rendered.\n", c, len(regionList), rPos.X, rPos.Z)
 				<-sem
 			}()
 
