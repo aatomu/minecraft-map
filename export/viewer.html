@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <title>World Map</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+
+      background-color: #080808;
+      overflow: hidden;
+      font-family: monospace, sans-serif;
+    }
+
+    .contents {
+      height: 100vh;
+      width: 100vw;
+
+      position: relative;
+    }
+
+    .contents>* {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    .content {
+      height: 100%;
+      width: 100%;
+    }
+
+    .svg {
+      fill: none;
+    }
+
+    .position {
+      top: 2em;
+      left: 2em;
+      padding: 8px 12px;
+      border-radius: 5px;
+      background-color: rgba(255, 255, 255, 0.7);
+      color: #000;
+      font-weight: bold;
+      pointer-events: none;
+      line-height: 1.4;
+    }
+
+    svg text {
+      background-color: rgba(0, 0, 0, 0.7);
+      transition: opacity 0.2s ease;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    /* hoverされたら対応するtextを表示 */
+    svg *+text:not(.static-label) {
+      opacity: 0;
+    }
+
+    svg *:hover+text:not(.static-label) {
+      opacity: 1;
+    }
+
+    svg text.static-label {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    svg text.static-label:hover {
+      opacity: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="contents">
+    <svg xmlns="http://www.w3.org/2000/svg" class="content svg" id="svg">
+      <g id="svg-group">
+        <!-- タイル画像用レイヤー -->
+        <g id="map-layer"></g>
+        <!-- editor描画オブジェクト用レイヤー -->
+        <g id="editor-layer"></g>
+      </g>
+    </svg>
+    <div class="position" id="position">
+      <div>Cursor: 0, 0</div>
+      <div>Zoom: x1.00</div>
+    </div>
+  </div>
+
+  <script>
+    const TILE_SIZE = 16 * 32;
+    const svg = document.getElementById("svg");
+    const svgGroup = document.getElementById("svg-group");
+    const mapLayer = document.getElementById("map-layer");
+    const editorLayer = document.getElementById("editor-layer");
+    const position = document.getElementById("position");
+
+    let offset = [0, 0];
+    let scale = 1.0;
+    let prevMousePosition = [0, 0];
+    let worldCenter = [0, 0];
+
+    // config.json 読込
+    window.addEventListener("DOMContentLoaded", async () => {
+      try {
+        const response = await fetch("./config.json");
+        const config = await response.json();
+        initApp(config);
+      } catch (error) {
+        console.error("config.json の読み込みに失敗しました:", error);
+      }
+    });
+
+    function initApp(config) {
+      worldCenter = config.center || [0, 0];
+
+      // 1. タイルの生成 (region範囲を走査)
+      const { min, max } = config.region;
+      for (let z = min[1]; z <= max[1]; z++) {
+        for (let x = min[0]; x <= max[0]; x++) {
+          const image = document.createElementNS("http://www.w3.org/2000/svg", "image");
+          image.setAttribute("href", `./r.${x}.${z}.png`);
+          image.setAttribute("x", x * TILE_SIZE);
+          image.setAttribute("y", z * TILE_SIZE);
+          image.setAttribute("width", TILE_SIZE);
+          image.setAttribute("height", TILE_SIZE);
+          image.setAttribute("style", "image-rendering: pixelated;");
+          mapLayer.appendChild(image);
+
+          image.addEventListener("error", () => {
+            image.remove();
+          }, { once: true });
+        }
+      }
+
+      // 2. editor 描画
+      if (Array.isArray(config.editor)) {
+        for (const item of config.editor) {
+          switch (item.type) {
+            case "path":
+              createPath(item);
+              break;
+            case "circle":
+              createCircle(item);
+              break;
+            case "label":
+              createStaticLabel(item);
+            default:
+              console.warn("未対応の型:", item);
+          }
+        }
+      }
+
+      // 3. 初期位置 (centerが画面中央に来るようにオフセット計算)
+      offset = [
+        (svg.clientWidth / 2) - worldCenter[0],
+        (svg.clientHeight / 2) - worldCenter[1]
+      ];
+      updateMap();
+    }
+
+    // ラベル生成関数
+    function createLabel(pos, labelArray, offsetY = 0) {
+      if (!labelArray || labelArray.length === 0) return null;
+
+      const fontSize = 16;
+      const textElement = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      textElement.setAttribute("x", pos[0]);
+      textElement.setAttribute("y", pos[1] - offsetY - (fontSize * labelArray.length / 2));
+      textElement.setAttribute("text-anchor", "middle");
+      textElement.setAttribute("font-size", fontSize);
+      textElement.setAttribute("paint-order", "stroke");
+      textElement.setAttribute("fill", "#ffffff");
+      textElement.setAttribute("stroke", "#000000");
+      textElement.setAttribute("stroke-width", fontSize / 4);
+
+      for (let i = 0; i < labelArray.length; i++) {
+        const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+        tspan.setAttribute("x", pos[0]);
+        if (i !== 0) {
+          tspan.setAttribute("dy", fontSize);
+        }
+        tspan.textContent = labelArray[i];
+        textElement.appendChild(tspan);
+      }
+
+      return textElement;
+    }
+
+    // path描画
+    function createPath({ path, color, width, label }) {
+      const element = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      const d = path.map((pt, idx) => `${idx === 0 ? "M" : "L"}${pt[0]},${pt[1]}`);
+      element.setAttribute("d", d.join(" "));
+      element.setAttribute("style", `stroke-width: ${width}px; stroke: ${color}; fill: none;`);
+      editorLayer.appendChild(element);
+
+      // labelが存在する場合は線の中心座標に描画
+      if (label && label.length > 0) {
+        const sum = path.reduce((acc, pt) => [acc[0] + pt[0], acc[1] + pt[1]], [0, 0]);
+        const centerPos = [sum[0] / path.length, sum[1] / path.length];
+        const textElement = createLabel(centerPos, label, width / 2 + 5);
+        if (textElement) {
+          editorLayer.appendChild(textElement);
+        }
+      }
+    }
+
+    // circle描画
+    function createCircle({ pos, radius, color, label }) {
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("cx", pos[0]);
+      circle.setAttribute("cy", pos[1]);
+      circle.setAttribute("r", radius);
+      circle.setAttribute("fill", color);
+      editorLayer.appendChild(circle);
+
+      if (label && label.length > 0) {
+        const offsetY = Math.max(radius * 2, 10);
+        const textElement = createLabel(pos, label, offsetY);
+        if (textElement) {
+          editorLayer.appendChild(textElement);
+        }
+      }
+    }
+
+    // 常時表示ラベル描画関数
+    function createStaticLabel({ pos, label, color = "#ffffff", fontSize = 16 }) {
+      if (!label || label.length === 0) return;
+
+      const textElement = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      textElement.setAttribute("class", "static-label");
+      textElement.setAttribute("x", pos[0]);
+      textElement.setAttribute("y", pos[1] - (fontSize * label.length / 2));
+      textElement.setAttribute("text-anchor", "middle");
+      textElement.setAttribute("font-size", fontSize);
+      textElement.setAttribute("paint-order", "stroke");
+      textElement.setAttribute("fill", color);
+      textElement.setAttribute("stroke", "#000000");
+      textElement.setAttribute("stroke-width", fontSize / 4);
+
+      for (let i = 0; i < label.length; i++) {
+        const tspan = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+        tspan.setAttribute("x", pos[0]);
+        if (i !== 0) {
+          tspan.setAttribute("dy", fontSize);
+        }
+        tspan.textContent = label[i];
+        textElement.appendChild(tspan);
+      }
+
+      editorLayer.appendChild(textElement);
+    }
+
+    // マウスドラッグによるパン
+    window.addEventListener("mousemove", (e) => {
+      const mousePosition = [e.clientX, e.clientY];
+
+      if (e.buttons === 1) { // 左クリックドラッグ
+        offset[0] += mousePosition[0] - prevMousePosition[0];
+        offset[1] += mousePosition[1] - prevMousePosition[1];
+        updateMap();
+      }
+
+      prevMousePosition = mousePosition;
+      updateCoordinatesDisplay(mousePosition[0], mousePosition[1]);
+    });
+
+    // マウスホイールによるズーム（マウス位置中心）
+    window.addEventListener("wheel", (e) => {
+      const mouseX = e.clientX;
+      const mouseY = e.clientY;
+
+      // 現在のマウス座標に対応するワールド座標
+      const worldX = (mouseX - offset[0]) / scale;
+      const worldY = (mouseY - offset[1]) / scale;
+
+      scale = getNextScale(scale, e.deltaY < 0);
+
+      // ズーム後も同じワールド座標がマウス直下に来るようにオフセットを逆算
+      offset[0] = mouseX - worldX * scale;
+      offset[1] = mouseY - worldY * scale;
+
+      updateMap();
+      updateCoordinatesDisplay(mouseX, mouseY);
+    });
+
+    // SVG全体の変換を適用
+    function updateMap() {
+      svgGroup.setAttribute("transform", `translate(${offset[0]},${offset[1]}) scale(${scale})`);
+    }
+
+    // 座標表示の更新
+    function updateCoordinatesDisplay(screenX, screenY) {
+      const worldX = (screenX - offset[0]) / scale;
+      const worldZ = (screenY - offset[1]) / scale;
+      position.innerHTML = `
+        <div>Cursor: ${worldX.toFixed(0)}, ${worldZ.toFixed(0)}</div>
+        <div>Zoom: x${scale.toFixed(2)}</div>
+      `;
+    }
+
+    function getNextScale(current, isZoomIn) {
+      if (isZoomIn) {
+        if (current < 1.0 - 1e-5) {
+          // 1.0未満は 0.1 刻み
+          return Math.round((current + 0.1) * 10) / 10;
+        } else {
+          // 1.0以上は現在の区間に応じたステップ幅 (0.5, 1, 2, 4...) を足す
+          const step = Math.max(0.5, Math.pow(2, Math.floor(Math.log2(current)) - 1));
+          return current + step;
+        }
+      } else {
+        if (current <= 1.0 + 1e-5) {
+          // 1.0以下になる場合は 0.1 刻み（最小 0.1）
+          return Math.max(0.1, Math.round((current - 0.1) * 10) / 10);
+        } else {
+          // 縮小時は「少し前の値」の区間ステップ幅を引く
+          const step = Math.max(0.5, Math.pow(2, Math.floor(Math.log2(current - 1e-5)) - 1));
+          return current - step;
+        }
+      }
+    }
+  </script>
+</body>
+
+</html>

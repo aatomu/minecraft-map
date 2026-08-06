@@ -1,5 +1,5 @@
-client.jar
-map_color.json
-map.png
-export/*
-config.json
+/config.json
+/client.jar
+/map_color.json
+
+/export/*.png

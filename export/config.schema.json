@@ -1,0 +1,89 @@
+{
+  "$id": "https://example.com/config.schema.json",
+  "title": "Minecraft World Map Config",
+  "type": "object",
+  "required": ["center", "region", "editor"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "center": { "$ref": "#/$defs/vec2" },
+    "region": {
+      "type": "object",
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "$ref": "#/$defs/vec2" },
+        "max": { "$ref": "#/$defs/vec2" }
+      },
+      "additionalProperties": false
+    },
+    "editor": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/editorItem" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "vec2": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "path": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/vec2" },
+      "minItems": 2
+    },
+    "pathObject": {
+      "type": "object",
+      "required": ["type", "path", "color", "width"],
+      "properties": {
+        "type": { "const": "path" },
+        "path": { "$ref": "#/$defs/path" },
+        "color": { "type": "string" },
+        "width": { "type": "number", "minimum": 0 },
+        "label": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "circleObject": {
+      "type": "object",
+      "required": ["type", "pos", "radius", "color"],
+      "properties": {
+        "type": { "const": "circle" },
+        "pos": { "$ref": "#/$defs/vec2" },
+        "radius": { "type": "number", "minimum": 0 },
+        "color": { "type": "string" },
+        "label": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "labelObject": {
+      "type": "object",
+      "required": ["type", "pos", "label"],
+      "properties": {
+        "type": { "const": "label" },
+        "pos": { "$ref": "#/$defs/vec2" },
+        "label": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "color": { "type": "string" },
+        "fontSize": { "type": "number", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "editorItem": {
+      "oneOf": [
+        { "$ref": "#/$defs/pathObject" },
+        { "$ref": "#/$defs/circleObject" },
+        { "$ref": "#/$defs/labelObject" }
+      ]
+    }
+  }
+}

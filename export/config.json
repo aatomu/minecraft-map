@@ -1,0 +1,40 @@
+{
+  "$schema": "./config.schema.json",
+  "center": [0, 0],
+  "region": {
+    "min": [-7, -5],
+    "max": [10, 10]
+  },
+  "editor": [
+    {
+      "type": "path",
+      "path": [
+        [-150, -360],
+        [460, -360],
+        [400, 130],
+        [200, 300],
+        [-200, 300],
+        [-400, 50],
+        [-440, -140],
+        [-150, -360]
+      ],
+      "color": "#ff000080",
+      "width": 10
+    },
+    {
+      "type": "circle",
+      "pos": [-200, -200],
+      "radius": 24,
+      "color": "#8000f0",
+      "label": ["名前: テスト ポイント","Name: example point"]
+    },
+
+    {
+      "type": "label",
+      "pos": [0, -100],
+      "label": ["中央広場", "(Safe Zone)"],
+      "color": "#ffff00",
+      "fontSize": 20
+    }
+  ]
+}
