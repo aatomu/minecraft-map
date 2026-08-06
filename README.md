@@ -7,7 +7,8 @@
 A standalone software application that automatically generates a color palette from the `client.jar` asset and renders a 2D world map in the style of a Minecraft map.
 
 ## Example image
-Minecraft Vanilla v1.21.8で自然生成されたワールドデータで出力したイメージです  
+
+Minecraft Vanilla v1.21.8 で自然生成されたワールドデータで出力したイメージです  
 This image was generated using naturally generated world data from Minecraft Vanilla v1.21.8.
 
 - 地図情報 / Map information
@@ -23,13 +24,16 @@ This image was generated using naturally generated world data from Minecraft Van
 ![](./example_map.png)
 
 ## Development Environment
-Tested with
-- Minecraft Java Edition: 1.21.8,1.21.11,26.1
-- Golang: 1.26.4
 
-Will be supported:
+Tested with:
+
+- Minecraft Java Edition: 1.21.8, 1.21.11, 26.1
+- Go: 1.26.4
+
+Should work on:
+
 - Minecraft Java Edition: 1.13+
-- Golang: 1.21+
+- Go: 1.21+
 
 ## Getting Started
 
@@ -96,5 +100,5 @@ Run the following command
 go run . generate
 ```
 
-実行時のログに出る、`[WARN] ... missing color blocks ...`については、config.jsonの`fallbackBlocks` もしくは `suppressBlocks` に設定を追加すること  
+実行時のログに出る、`[WARN] ... missing color blocks ...`については、config.json の`fallbackBlocks` もしくは `suppressBlocks` に設定を追加すること  
 Regarding the `[WARN] ... missing color blocks ...` message that appears in the runtime log, add a setting to either `fallbackBlocks` or `suppressBlocks` in `config.json`.
