@@ -24,8 +24,12 @@ This image was generated using naturally generated world data from Minecraft Van
 
 ## Development Environment
 Tested with
-- Minecraft Java Edition: 26.1.1
+- Minecraft Java Edition: 1.21.8,1.21.11,26.1
 - Golang: 1.26.4
+
+Will be supported:
+- Minecraft Java Edition: 1.13+
+- Golang: 1.21+
 
 ## Getting Started
 
