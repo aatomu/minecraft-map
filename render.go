@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -25,7 +24,7 @@ type RegionRenderResult struct {
 	MissingBlocks []string
 }
 
-// renderRegion は 1 つのリージョン (.mca) を解析し、画像データと高さバッファを返します (ファイル出力は行いません)
+// renderRegion は 1 つのリージョン (.mca) を解析し、画像データと高さバッファを返します
 func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, colorMap map[string]image.Image, blockColors map[string]BlockColorInfo, suppressMap map[string]bool) (*RegionRenderResult, error) {
 	imgSize := 512
 	canvas := image.NewRGBA(image.Rect(0, 0, imgSize, imgSize))
@@ -73,13 +72,12 @@ func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, color
 					for y := chunkBlocks.MaxY; y >= chunkBlocks.MinY; y-- {
 						b := chunkBlocks.GetBlock(lx, y, lz)
 
-						if isSuppressedBlock(b.Name, suppressMap) {
+						if _, hit := suppressMap[b.Name]; hit {
 							continue
 						}
 
-						cleanName := strings.TrimPrefix(b.Name, "minecraft:")
-						fallbackId, ok := config.FallbackBlocks[cleanName]
-						if ok {
+						cleanName := b.Name
+						if fallbackId, ok := config.FallbackBlocks[cleanName]; ok {
 							cleanName = fallbackId
 						}
 
@@ -89,39 +87,37 @@ func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, color
 							continue
 						}
 
-						if ok {
-							// 水没判定
-							if b.Properties["waterlogged"] == "true" {
-								waterInfo := BlockColorInfo{Color: [4]uint8{64, 128, 255, 90}, BiomeType: "none"}
-								if w, ok := blockColors["water"]; ok {
-									waterInfo = w
-								}
-								tinted := multiplyColor(
-									color.RGBA{info.Color[0], info.Color[1], info.Color[2], info.Color[3]},
-									color.RGBA{waterInfo.Color[0], waterInfo.Color[1], waterInfo.Color[2], 255},
-								)
-								info.Color = [4]uint8{tinted.R, tinted.G, tinted.B, info.Color[3]}
+						// 水没判定
+						if b.Properties["waterlogged"] == "true" {
+							waterInfo := BlockColorInfo{Color: [4]uint8{64, 128, 255, 90}, BiomeType: "none"}
+							if w, ok := blockColors["water"]; ok {
+								waterInfo = w
 							}
+							tinted := multiplyColor(
+								color.RGBA{R: info.Color[0], G: info.Color[1], B: info.Color[2], A: info.Color[3]},
+								color.RGBA{R: waterInfo.Color[0], G: waterInfo.Color[1], B: waterInfo.Color[2], A: 255},
+							)
+							info.Color = [4]uint8{tinted.R, tinted.G, tinted.B, info.Color[3]}
+						}
 
-							// 特殊なTint対応
-							if tintf, hasTint := tintResolvers[cleanName]; hasTint {
-								base := color.RGBA{R: info.Color[0], G: info.Color[1], B: info.Color[2], A: info.Color[3]}
-								tinted := multiplyColor(base, tintf(b.Properties))
-								info.Color = [4]uint8{tinted.R, tinted.G, tinted.B, info.Color[3]}
-							}
+						// 特殊なTint対応
+						if tintf, hasTint := tintResolvers[cleanName]; hasTint {
+							base := color.RGBA{R: info.Color[0], G: info.Color[1], B: info.Color[2], A: info.Color[3]}
+							tinted := multiplyColor(base, tintf(b.Properties))
+							info.Color = [4]uint8{tinted.R, tinted.G, tinted.B, info.Color[3]}
+						}
 
-							biomeName := chunkBlocks.GetBiome(lx, y, lz)
-							blockColor := GetTintedColor(info, biomeName, colorMap)
+						biomeName := chunkBlocks.GetBiome(lx, y, lz)
+						blockColor := GetTintedColor(info, biomeName, colorMap)
 
-							if topSolidY == math.MinInt {
-								topSolidY = y
-							}
+						if topSolidY == math.MinInt {
+							topSolidY = y
+						}
 
-							layers = append(layers, blockColor)
+						layers = append(layers, blockColor)
 
-							if blockColor.A == 255 {
-								break
-							}
+						if blockColor.A == 255 {
+							break
 						}
 					}
 
@@ -153,7 +149,7 @@ func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, color
 	}, nil
 }
 
-// exportMapRegion は各リージョンを個別の PNG ファイル (例: r.0.0.png) として出力します
+// exportMapRegion は各リージョンを個別の PNG ファイルとして出力します
 func exportMapRegion(rootDir string, regionList []RegionPos, fallback FallbackColors, colorMap map[string]image.Image, blockColors map[string]BlockColorInfo, suppressMap map[string]bool, shading bool, exportDir string) error {
 	if err := os.MkdirAll(exportDir, 0755); err != nil {
 		return fmt.Errorf("failed to create export dir: %w", err)
@@ -292,7 +288,7 @@ func exportMapFull(rootDir string, regionList []RegionPos, fallback FallbackColo
 		for k := range allMissingBlocksSet {
 			globalMissingList = append(globalMissingList, k)
 		}
-		// ソートしておくと見やすくなります
+		// ソート表示
 		slices.Sort(globalMissingList)
 		log.Printf("[WARN] All missing color blocks in world (%d types): %v\n", len(globalMissingList), globalMissingList)
 	}
@@ -313,9 +309,10 @@ func exportMapFull(rootDir string, regionList []RegionPos, fallback FallbackColo
 
 // --- 共通ヘルパー関数 ---
 
+// applyShading: 行優先アクセス(z外側, x内側)へ変更し、キャッシュ効率を最適化
 func applyShading(canvas *image.RGBA, heightBuffer []int, width, height int) {
-	for x := 0; x < width; x++ {
-		for z := 0; z < height; z++ {
+	for z := 0; z < height; z++ {
+		for x := 0; x < width; x++ {
 			currY := heightBuffer[x+width*z]
 			if currY == math.MinInt {
 				continue
@@ -400,16 +397,6 @@ func blendLayers(layers []color.RGBA) color.RGBA {
 	}
 }
 
-func isSuppressedBlock(name string, suppressMap map[string]bool) bool {
-	clean := strings.TrimPrefix(name, "minecraft:")
-
-	// 1. スキップ対象リストに含まれていれば true
-	if suppressMap[clean] {
-		return true
-	}
-
-	return false
-}
 func savePNG(filePath string, img image.Image) error {
 	f, err := os.Create(filePath)
 	if err != nil {

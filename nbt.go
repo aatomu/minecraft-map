@@ -175,7 +175,7 @@ func (p *NBTParser) readCompound() (map[string]interface{}, error) {
 	return res, nil
 }
 
-// Minecraft 1.16+ パディング対応のビット配列アンパック関数
+// unpackBitArray は小規模データ（バイオーム等）用の一括アンパック関数
 func unpackBitArray(data []int64, bitsPerBlock, count int) []uint32 {
 	result := make([]uint32, count)
 	entriesPerLong := 64 / bitsPerBlock

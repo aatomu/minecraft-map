@@ -391,7 +391,8 @@ var BiomeTable = map[string]BiomeData{
 	"minecraft:badlands":         {Temp: 2.0, Downfall: 0.0, Water: color.RGBA{78, 80, 189, 255}},
 }
 
-func getColorFromMap(img image.Image, temp, downfall float64) color.Color {
+// getColorFromMap は color.RGBA を直接返してインタフェース型変換を回避
+func getColorFromMap(img image.Image, temp, downfall float64) color.RGBA {
 	if img == nil {
 		return color.RGBA{85, 140, 50, 255}
 	}
@@ -402,7 +403,8 @@ func getColorFromMap(img image.Image, temp, downfall float64) color.Color {
 	x := int((1.0 - temp) * float64(bounds.Dx()-1))
 	y := int((1.0 - downfall) * float64(bounds.Dy()-1))
 
-	return img.At(x, y)
+	r, g, b, a := img.At(x, y).RGBA()
+	return color.RGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: uint8(a >> 8)}
 }
 
 // BiomeType から動的に対応するカラーマップ画像を取得して適用
@@ -430,18 +432,12 @@ func GetTintedColor(info BlockColorInfo, biomeName string, colorMap map[string]i
 	return baseColor
 }
 
-// --- ヘルパー関数 ---
-
-func multiplyColor(base, tint color.Color) color.RGBA {
-	// color.NRGBAModel を使うことで、アルファ乗算を解除した生の 0~255 の RGB を安全に取得
-	nrgbaBase := color.NRGBAModel.Convert(base).(color.NRGBA)
-	nrgbaTint := color.NRGBAModel.Convert(tint).(color.NRGBA)
-
-	// 0〜255 同士の乗算
-	r := uint8((uint32(nrgbaBase.R) * uint32(nrgbaTint.R)) / 255)
-	g := uint8((uint32(nrgbaBase.G) * uint32(nrgbaTint.G)) / 255)
-	b := uint8((uint32(nrgbaBase.B) * uint32(nrgbaTint.B)) / 255)
-	a := nrgbaBase.A
+// multiplyColor は color.NRGBAModel.Convert を介さず直接 uint8 演算を行います
+func multiplyColor(base, tint color.RGBA) color.RGBA {
+	r := uint8((uint32(base.R) * uint32(tint.R)) / 255)
+	g := uint8((uint32(base.G) * uint32(tint.G)) / 255)
+	b := uint8((uint32(base.B) * uint32(tint.B)) / 255)
+	a := base.A
 
 	return color.RGBA{R: r, G: g, B: b, A: a}
 }

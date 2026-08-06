@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // ChunkStatus はチャンクの読み込み結果ステータスを表す enum です
 type ChunkStatus int
@@ -37,27 +40,67 @@ type Block struct {
 	Properties map[string]string
 }
 
+// SectionData は1セクション(16x16x16)分のパレットと元データ配列を保持します
+type SectionData struct {
+	Y            int8
+	Palette      []Block
+	Data         []int64 // 圧縮ビット配列 raw データ
+	BitsPerBlock int     // エントリあたりのビット数
+}
+
+// GetIndexAt は指定されたブロックインデックス(0..4095)のパレット番号をオンデマンドで直接計算します
+func (s *SectionData) GetIndexAt(i int) uint32 {
+	if s.BitsPerBlock <= 0 || len(s.Data) == 0 {
+		return 0
+	}
+	entriesPerLong := 64 / s.BitsPerBlock
+	longIndex := i / entriesPerLong
+	if longIndex >= len(s.Data) {
+		return 0
+	}
+	subIndex := i % entriesPerLong
+	shift := subIndex * s.BitsPerBlock
+	mask := uint64((1 << s.BitsPerBlock) - 1)
+	return uint32((uint64(s.Data[longIndex]) >> shift) & mask)
+}
+
 // ChunkBlocksDynamic は任意の高さ・範囲に対応できるチャンク構造
 type ChunkBlocksDynamic struct {
-	MinY   int             // 実際の最小ブロックY座標 (例: -64, 0 など)
-	MaxY   int             // 実際の最大ブロックY座標 (例: 319, 255 など)
-	Blocks [16][][16]Block // [X][Y][Z] の動的スライス (Yの長さは可変)
-	Biomes map[int8][4][4][4]string
+	MinY     int                   // 実際の最小ブロックY座標 (例: -64, 0 など)
+	MaxY     int                   // 実際の最大ブロックY座標 (例: 319, 255 など)
+	Sections map[int8]*SectionData // SectionY -> セクションメタデータ
+	Biomes   map[int8][4][4][4]string
 }
 
+// GetBlock は呼び出された時に必要箇所のみ遅延評価・動的計算でブロックを取得します
 func (c *ChunkBlocksDynamic) GetBlock(x, y, z int) Block {
-	yIndex := y - c.MinY
-	if x < 0 || x >= 16 || z < 0 || z >= 16 || yIndex < 0 || yIndex >= len(c.Blocks[0]) {
-		return Block{Name: "minecraft:void"}
+	if x < 0 || x >= 16 || z < 0 || z >= 16 || y < c.MinY || y > c.MaxY {
+		return Block{Name: "void"}
 	}
-	return c.Blocks[x][yIndex][z]
-}
 
-func (c *ChunkBlocksDynamic) SetBlock(x, y, z int, block Block) {
-	yIndex := y - c.MinY
-	if x >= 0 && x < 16 && z >= 0 && z < 16 && yIndex >= 0 && yIndex < len(c.Blocks[0]) {
-		c.Blocks[x][yIndex][z] = block
+	sectionY := int8(y >> 4)
+	sec, ok := c.Sections[sectionY]
+	if !ok || len(sec.Palette) == 0 {
+		return Block{Name: "air"}
 	}
+
+	// 1. 単一パレットの場合は計算なしで即座に返す
+	if len(sec.Palette) == 1 {
+		return sec.Palette[0]
+	}
+
+	// 2. 複数パレットの場合、 GetIndexAt で必要な箇所のみオンデマンド解凍
+	localY := y & 15
+	localX := x & 15
+	localZ := z & 15
+	blockIdx := localY*256 + localZ*16 + localX
+
+	paletteIdx := sec.GetIndexAt(blockIdx)
+	if int(paletteIdx) < len(sec.Palette) {
+		return sec.Palette[paletteIdx]
+	}
+
+	return Block{Name: "air"}
 }
 
 func (c *ChunkBlocksDynamic) GetBiome(x, y, z int) string {
@@ -86,7 +129,9 @@ func ParseChunkBlocksDynamic(uncompressedNBT []byte) (*ChunkBlocksDynamic, error
 	// 1. 存在するセクションの最小Yと最大Yを特定する
 	minSectionY := 127
 	maxSectionY := -128
-	validSections := make(map[int8]map[string]interface{})
+
+	parsedSections := make(map[int8]*SectionData)
+	biomesMapResult := make(map[int8][4][4][4]string)
 
 	for _, s := range sections {
 		section, ok := s.(map[string]interface{})
@@ -106,40 +151,14 @@ func ParseChunkBlocksDynamic(uncompressedNBT []byte) (*ChunkBlocksDynamic, error
 			continue
 		}
 
-		// 有効なセクション情報を保持
-		validSections[sectionY] = section
-
 		if int(sectionY) < minSectionY {
 			minSectionY = int(sectionY)
 		}
 		if int(sectionY) > maxSectionY {
 			maxSectionY = int(sectionY)
 		}
-	}
 
-	if len(validSections) == 0 {
-		return nil, fmt.Errorf("有効なセクションが存在しません")
-	}
-
-	// 2. 最小・最大のワールドY座標と高さを算出
-	minY := minSectionY * 16
-	maxY := (maxSectionY+1)*16 - 1
-	totalHeight := maxY - minY + 1
-
-	// 3. 動的に 3次元スライス [16][totalHeight][16] を確保
-	chunk := &ChunkBlocksDynamic{
-		MinY:   minY,
-		MaxY:   maxY,
-		Biomes: make(map[int8][4][4][4]string),
-	}
-
-	for x := 0; x < 16; x++ {
-		chunk.Blocks[x] = make([][16]Block, totalHeight)
-	}
-
-	// 4. セクションごとにブロックを配置
-	for sectionY, section := range validSections {
-		// バイオーム情報の復元
+		// --- バイオーム情報の解析 ---
 		if biomesMap, ok := section["biomes"].(map[string]interface{}); ok {
 			if paletteRaw, ok := biomesMap["palette"].([]interface{}); ok && len(paletteRaw) > 0 {
 				defaultBiome := "minecraft:plains"
@@ -170,11 +189,11 @@ func ParseChunkBlocksDynamic(uncompressedNBT []byte) (*ChunkBlocksDynamic, error
 						}
 					}
 				}
-				chunk.Biomes[sectionY] = cell
+				biomesMapResult[sectionY] = cell
 			}
 		}
 
-		// ブロック情報の復元
+		// --- ブロックパレットの解析 ---
 		blockStates, ok := section["block_states"].(map[string]interface{})
 		if !ok {
 			continue
@@ -192,7 +211,9 @@ func ParseChunkBlocksDynamic(uncompressedNBT []byte) (*ChunkBlocksDynamic, error
 			if !ok {
 				continue
 			}
-			name, _ := pMap["Name"].(string)
+			rawName, _ := pMap["Name"].(string)
+			// NBT パース時点で minecraft: プレフィックスを剥がす
+			cleanName := strings.TrimPrefix(rawName, "minecraft:")
 
 			props := make(map[string]string)
 			if pProps, ok := pMap["Properties"].(map[string]interface{}); ok {
@@ -202,45 +223,36 @@ func ParseChunkBlocksDynamic(uncompressedNBT []byte) (*ChunkBlocksDynamic, error
 					}
 				}
 			}
-			palette[i] = Block{Name: name, Properties: props}
+			palette[i] = Block{Name: cleanName, Properties: props}
 		}
 
-		// セクション内すべてのブロックを展開
-		if len(palette) == 1 {
-			// 単一ブロックで満たされている場合
-			for ly := 0; ly < 16; ly++ {
-				y := int(sectionY)*16 + ly
-				for lx := 0; lx < 16; lx++ {
-					for lz := 0; lz < 16; lz++ {
-						// 修正: lz を追加 (lx, y, lz, block)
-						chunk.SetBlock(lx, y, lz, palette[0])
-					}
-				}
+		secData := &SectionData{
+			Y:       sectionY,
+			Palette: palette,
+		}
+
+		// 単一パレットの場合はデータ参照を持たせない
+		if len(palette) > 1 {
+			if dataRaw, ok := blockStates["data"].([]int64); ok {
+				secData.Data = dataRaw
+				secData.BitsPerBlock = max(4, bitLen(uint(len(palette)-1)))
 			}
-			continue
 		}
 
-		dataRaw, ok := blockStates["data"].([]int64)
-		if !ok {
-			continue
-		}
-
-		bitsPerBlock := max(4, bitLen(uint(len(palette)-1)))
-		indices := unpackBitArray(dataRaw, bitsPerBlock, 4096)
-
-		for i, paletteIndex := range indices {
-			if int(paletteIndex) >= len(palette) {
-				continue
-			}
-
-			localX := i % 16
-			localZ := (i / 16) % 16
-			localY := i / (16 * 16)
-
-			worldY := int(sectionY)*16 + localY
-			chunk.SetBlock(localX, worldY, localZ, palette[paletteIndex])
-		}
+		parsedSections[sectionY] = secData
 	}
 
-	return chunk, nil
+	if len(parsedSections) == 0 {
+		return nil, fmt.Errorf("有効なセクションが存在しません")
+	}
+
+	minY := minSectionY * 16
+	maxY := (maxSectionY+1)*16 - 1
+
+	return &ChunkBlocksDynamic{
+		MinY:     minY,
+		MaxY:     maxY,
+		Sections: parsedSections,
+		Biomes:   biomesMapResult,
+	}, nil
 }

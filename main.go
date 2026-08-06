@@ -71,6 +71,15 @@ func main() {
 		log.Println("[INFO] Success to parse textures")
 
 	case "generate":
+		// FallbackBlocks のキーと値の "minecraft:" プレフィックスを事前にトリム
+		cleanedFallbackBlocks := make(map[string]string, len(config.FallbackBlocks))
+		for k, v := range config.FallbackBlocks {
+			cleanKey := strings.TrimPrefix(k, "minecraft:")
+			cleanVal := strings.TrimPrefix(v, "minecraft:")
+			cleanedFallbackBlocks[cleanKey] = cleanVal
+		}
+		config.FallbackBlocks = cleanedFallbackBlocks
+
 		// 1. map_color.json を取得
 		blockColor, colorMap, err := LoadMapColors(config.MapColorJson)
 		if err != nil {
@@ -109,7 +118,7 @@ func main() {
 		}
 
 		// 3. suppressBlocksのSet化
-		suppressMap := make(map[string]bool)
+		suppressMap := make(map[string]bool, len(config.SuppressBlocks))
 		for _, blockID := range config.SuppressBlocks {
 			clean := strings.TrimPrefix(blockID, "minecraft:")
 			suppressMap[clean] = true
