@@ -102,3 +102,9 @@ go run . generate
 
 実行時のログに出る、`[WARN] ... missing color blocks ...`については、config.json の`fallbackBlocks` もしくは `suppressBlocks` に設定を追加すること  
 Regarding the `[WARN] ... missing color blocks ...` message that appears in the runtime log, add a setting to either `fallbackBlocks` or `suppressBlocks` in `config.json`.
+
+
+Todo:
+- config.jsonのclientJarをresource: [*.jar,*.zip,*/]に変更
+- texture.goで blockID:{}から "namespace:blockID":{}に移行
+- *.goで"namespace:blockID":{}をサポート
