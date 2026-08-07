@@ -18,6 +18,7 @@ type Config struct {
 		Dir      string `json:"dir"`
 		Shading  bool   `json:"shading"`
 		ByRegion bool   `json:"byRegion"`
+		Mode     string `json:"mode"`
 	} `json:"export"`
 	FallBackColor struct {
 		Ungenerated [4]uint8 `json:"ungenerated"` // 未生成

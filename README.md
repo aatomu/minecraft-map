@@ -64,7 +64,10 @@ Should work on:
     // 高低差による影の描画 / Rendering shadows based on elevation differences
     "shading": true,
     // リージョンファイル(.mca)単位での出力の有効化 /  Enable output by region file (.mca)
-    "byRegion": false
+    "byRegion": false,
+    // PNGファイルの出力モード / PNG file output mode
+    // "default" | "compression"
+    "mode": "default",
   },
   "fallbackColor": {
     // 未生成チャンクのレンダリングカラー / Rendering color for ungenerated chunks
