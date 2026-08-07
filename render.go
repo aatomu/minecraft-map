@@ -90,7 +90,7 @@ func renderRegion(rootDir string, rPos RegionPos, fallback FallbackColors, color
 						// 水没判定
 						if b.Properties["waterlogged"] == "true" {
 							waterInfo := BlockColorInfo{Color: [4]uint8{64, 128, 255, 90}, BiomeType: "none"}
-							if w, ok := blockColors["water"]; ok {
+							if w, ok := blockColors["minecraft:water"]; ok {
 								waterInfo = w
 							}
 							tinted := multiplyColor(

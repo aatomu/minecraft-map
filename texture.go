@@ -40,15 +40,15 @@ type tintFunc func(props map[string]string) color.RGBA
 
 var tintResolvers = map[string]tintFunc{
 	// --- 固定色（バイオーム非依存） ---
-	"spruce_leaves": constTint(0x61, 0x99, 0x61),
-	"birch_leaves":  constTint(0x80, 0xa7, 0x55),
-	"lily_pad":      constTint(0x20, 0x80, 0x30),
+	"minecraft:spruce_leaves": constTint(0x61, 0x99, 0x61),
+	"minecraft:birch_leaves":  constTint(0x80, 0xa7, 0x55),
+	"minecraft:lily_pad":      constTint(0x20, 0x80, 0x30),
 
 	// --- age駆動（茎） ---
-	"melon_stem_stage7":     stemTintFromProps,
-	"pumpkin_stem_stage7":   stemTintFromProps,
-	"attached_melon_stem":   fixedAgeStemTint(7),
-	"attached_pumpkin_stem": fixedAgeStemTint(7),
+	"minecraft:melon_stem_stage7":     stemTintFromProps,
+	"minecraft:pumpkin_stem_stage7":   stemTintFromProps,
+	"minecraft:attached_melon_stem":   fixedAgeStemTint(7),
+	"minecraft:attached_pumpkin_stem": fixedAgeStemTint(7),
 }
 
 // constTint は固定色を返すクロージャを生成
@@ -131,7 +131,7 @@ func ExtractMapColors(jarPath, jsonPath string) error {
 				bType = "water"
 				avgColor[3] = 180 // 水に透過性を設定
 			}
-			resultBlocks[name] = BlockColorInfo{Color: avgColor, BiomeType: bType}
+			resultBlocks[normalizeBlockID(name)] = BlockColorInfo{Color: avgColor, BiomeType: bType}
 		}
 	}
 
@@ -157,7 +157,7 @@ func ExtractMapColors(jarPath, jsonPath string) error {
 		avgColor := calculateAverageColor(texFile)
 		biomeType := determineBiomeType(blockID)
 
-		resultBlocks[blockID] = BlockColorInfo{
+		resultBlocks[normalizeBlockID(blockID)] = BlockColorInfo{
 			Color:     avgColor,
 			BiomeType: biomeType,
 		}

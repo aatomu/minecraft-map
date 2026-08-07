@@ -71,12 +71,9 @@ func main() {
 		log.Println("[INFO] Success to parse textures")
 
 	case "generate":
-		// FallbackBlocks のキーと値の "minecraft:" プレフィックスを事前にトリム
 		cleanedFallbackBlocks := make(map[string]string, len(config.FallbackBlocks))
 		for k, v := range config.FallbackBlocks {
-			cleanKey := strings.TrimPrefix(k, "minecraft:")
-			cleanVal := strings.TrimPrefix(v, "minecraft:")
-			cleanedFallbackBlocks[cleanKey] = cleanVal
+			cleanedFallbackBlocks[normalizeBlockID(k)] = normalizeBlockID(v)
 		}
 		config.FallbackBlocks = cleanedFallbackBlocks
 
@@ -120,8 +117,7 @@ func main() {
 		// 3. suppressBlocksのSet化
 		suppressMap := make(map[string]bool, len(config.SuppressBlocks))
 		for _, blockID := range config.SuppressBlocks {
-			clean := strings.TrimPrefix(blockID, "minecraft:")
-			suppressMap[clean] = true
+			suppressMap[normalizeBlockID(blockID)] = true
 		}
 
 		// 4. config.json の byRegion 設定に基づいて処理を切り替え
@@ -161,6 +157,15 @@ func main() {
 	default:
 		log.Fatalf("[FATAL] Unknown command: %s (use 'color' or 'generate')", cmd)
 	}
+}
+
+// normalizeBlockID は namespace 無しの ID に "minecraft:" を付与し、
+// "namespace:blockID" 形式に統一します。既に namespace を含む場合はそのまま返します。
+func normalizeBlockID(id string) string {
+	if !strings.Contains(id, ":") {
+		return "minecraft:" + id
+	}
+	return id
 }
 
 func toRGBA(c [4]uint8) color.RGBA {

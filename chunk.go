@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 )
 
 // ChunkStatus はチャンクの読み込み結果ステータスを表す enum です
@@ -75,13 +74,13 @@ type ChunkBlocksDynamic struct {
 // GetBlock は呼び出された時に必要箇所のみ遅延評価・動的計算でブロックを取得します
 func (c *ChunkBlocksDynamic) GetBlock(x, y, z int) Block {
 	if x < 0 || x >= 16 || z < 0 || z >= 16 || y < c.MinY || y > c.MaxY {
-		return Block{Name: "void"}
+		return Block{Name: "minecraft:void"}
 	}
 
 	sectionY := int8(y >> 4)
 	sec, ok := c.Sections[sectionY]
 	if !ok || len(sec.Palette) == 0 {
-		return Block{Name: "air"}
+		return Block{Name: "minecraft:air"}
 	}
 
 	// 1. 単一パレットの場合は計算なしで即座に返す
@@ -100,7 +99,7 @@ func (c *ChunkBlocksDynamic) GetBlock(x, y, z int) Block {
 		return sec.Palette[paletteIdx]
 	}
 
-	return Block{Name: "air"}
+	return Block{Name: "minecraft:air"}
 }
 
 func (c *ChunkBlocksDynamic) GetBiome(x, y, z int) string {
@@ -212,8 +211,8 @@ func ParseChunkBlocksDynamic(uncompressedNBT []byte) (*ChunkBlocksDynamic, error
 				continue
 			}
 			rawName, _ := pMap["Name"].(string)
-			// NBT パース時点で minecraft: プレフィックスを剥がす
-			cleanName := strings.TrimPrefix(rawName, "minecraft:")
+			// "namespace:blockID" 形式に統一（namespace 省略時は minecraft: を付与）
+			cleanName := normalizeBlockID(rawName)
 
 			props := make(map[string]string)
 			if pProps, ok := pMap["Properties"].(map[string]interface{}); ok {
