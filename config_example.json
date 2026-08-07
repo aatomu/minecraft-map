@@ -1,7 +1,8 @@
 {
   "regionDir": "./world/region",
   "resources": [
-    ".minecraft/version/26.1.1.jar"
+    ".minecraft/version/26.1.1.jar",
+    ".minecraft/resourcepacks/example.zip"
   ],
   "mapColorJson": "./map_color.json",
   "export": {
