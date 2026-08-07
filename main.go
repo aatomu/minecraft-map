@@ -11,9 +11,9 @@ import (
 )
 
 type Config struct {
-	RegionDir    string `json:"regionDir"`
-	ClientJar    string `json:"clientJar"`
-	MapColorJson string `json:"mapColorJson"`
+	RegionDir    string   `json:"regionDir"`
+	Resources    []string `json:"resources"` // .jar/.zip/ディレクトリのリスト。先頭=初期値、末尾=上書き後の値
+	MapColorJson string   `json:"mapColorJson"`
 	Export       struct {
 		Dir      string `json:"dir"`
 		Shading  bool   `json:"shading"`
@@ -64,7 +64,7 @@ func main() {
 	switch cmd {
 	case "color":
 		log.Println("[INFO] Starting to parse textures")
-		err := ExtractMapColors(config.ClientJar, config.MapColorJson)
+		err := ExtractMapColors(config.Resources, config.MapColorJson)
 		if err != nil {
 			log.Fatalf("[FATAL] Failed to parse textures: %v", err)
 		}

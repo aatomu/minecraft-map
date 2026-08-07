@@ -1,10 +1,10 @@
 # minecraft-map
 
 (Japanase)
-`client.jar` のアセットからカラーパレットを自動生成し、Minecraft の地図風の 2D ワールドマップを描画するスタンドアロン型ソフトウェア。
+`client.jar` やリソースパック等のアセットからカラーパレットを自動生成し、Minecraft の地図風の 2D ワールドマップを描画するスタンドアロン型ソフトウェア。
 
 (English)
-A standalone software application that automatically generates a color palette from the `client.jar` asset and renders a 2D world map in the style of a Minecraft map.
+A standalone software application that automatically generates a color palette from assets such as `client.jar` and resource packs, and renders a 2D world map in the style of a Minecraft map.
 
 ## Example image
 
@@ -48,8 +48,14 @@ Should work on:
 {
   // ワールドのリージョンファイル(.mca) のディレクトリ / Directory containing the world's region file (.mca)
   "regionDir": "./world/region",
-  // Minecraftのclient.jarのファイルパス / File path for Minecraft's client.jar
-  "clientJar": "~/.minecraft/versions/26.1.1/26.1.1.jar",
+  // アセット読み込み元のリスト(.jar / .zip / 展開済みディレクトリを指定可能) / List of asset sources (.jar / .zip / extracted directory)
+  // 配列の先頭が初期値(ベース)、末尾ほど優先度が高く、同じパスのファイルは後方のソースで上書きされる
+  // The first entry is the base (default). Later entries take priority and overwrite files at the same path from earlier entries.
+  "resources": [
+    "~/.minecraft/versions/26.1.1/26.1.1.jar",
+    "./resources/some_resourcepack.zip",
+    "./resources/my_override_pack"
+  ],
   // カラーパレットの保存ファイル名 / Color palette file name
   "mapColorJson": "./map_color.json",
   "export": {
@@ -82,6 +88,15 @@ Should work on:
 }
 ```
 
+`resources` に指定できるもの / What can be listed in `resources`:
+
+- `client.jar`（バニラのアセット。基本的に一番最初に指定する / vanilla assets, normally listed first）
+- リソースパックの `.zip` ファイル / resource pack `.zip` files
+- リソースパックや MOD アセットを展開したディレクトリ / extracted resource pack or mod asset directories
+
+各ソースは `assets/<namespace>/...` を自動的に走査するため、`minecraft` 以外の namespace（MOD 等）も自動で検出されます。  
+Each source is automatically scanned under `assets/<namespace>/...`, so namespaces other than `minecraft` (e.g. mods) are detected automatically as well.
+
 ### 2. カラーパレットの生成 / Generate color palette
 
 以下のコマンドを実行する  
@@ -102,9 +117,3 @@ go run . generate
 
 実行時のログに出る、`[WARN] ... missing color blocks ...`については、config.json の`fallbackBlocks` もしくは `suppressBlocks` に設定を追加すること  
 Regarding the `[WARN] ... missing color blocks ...` message that appears in the runtime log, add a setting to either `fallbackBlocks` or `suppressBlocks` in `config.json`.
-
-
-Todo:
-- config.jsonのclientJarをresource: [*.jar,*.zip,*/]に変更
-- texture.goで blockID:{}から "namespace:blockID":{}に移行
-- *.goで"namespace:blockID":{}をサポート

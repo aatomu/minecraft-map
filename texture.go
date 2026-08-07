@@ -89,43 +89,154 @@ func stemTint(age int) color.RGBA {
 	}
 }
 
-func ExtractMapColors(jarPath, jsonPath string) error {
-	r, err := zip.OpenReader(jarPath)
-	if err != nil {
-		return fmt.Errorf("Failed to load client.jar: %w", err)
-	}
-	defer r.Close()
+type fileEntry struct {
+	open func() (io.ReadCloser, error)
+}
 
-	fileMap := make(map[string]*zip.File)
-	for _, f := range r.File {
-		fileMap[f.Name] = f
+// collectResourceEntries は resourcePaths に列挙された *.jar / *.zip / ディレクトリ を
+// 「先頭が初期値(最も優先度が低い)、末尾が最終的な上書き値(最も優先度が高い)」の順で
+// 単一の仮想ファイルマップへマージします。戻り値の closers は呼び出し側で defer Close してください。
+func collectResourceEntries(resourcePaths []string) (map[string]fileEntry, []io.Closer, error) {
+	if len(resourcePaths) == 0 {
+		return nil, nil, fmt.Errorf("resources is empty: specify at least one .jar/.zip/directory in config.json's \"resources\"")
 	}
+
+	entries := make(map[string]fileEntry)
+	var closers []io.Closer
+	sourceCount := 0
+
+	for _, fullPath := range resourcePaths {
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			log.Printf("[WARN] Failed to stat resource %s: %v\n", fullPath, err)
+			continue
+		}
+		lowerName := strings.ToLower(fullPath)
+
+		switch {
+		case info.IsDir():
+			if err := addDirSource(fullPath, entries); err != nil {
+				log.Printf("[WARN] Failed to load resource directory %s: %v\n", fullPath, err)
+				continue
+			}
+			log.Printf("[INFO] Loaded resource directory (priority %d): %s\n", sourceCount, fullPath)
+			sourceCount++
+
+		case strings.HasSuffix(lowerName, ".jar") || strings.HasSuffix(lowerName, ".zip"):
+			zr, err := zip.OpenReader(fullPath)
+			if err != nil {
+				log.Printf("[WARN] Failed to open archive %s: %v\n", fullPath, err)
+				continue
+			}
+			closers = append(closers, zr)
+			for _, f := range zr.File {
+				if f.FileInfo().IsDir() {
+					continue
+				}
+				zf := f
+				// 後から処理されたソースほど優先されるため、単純に上書き代入でよい
+				entries[filepath.ToSlash(zf.Name)] = fileEntry{open: func() (io.ReadCloser, error) {
+					return zf.Open()
+				}}
+			}
+			log.Printf("[INFO] Loaded resource archive (priority %d): %s\n", sourceCount, fullPath)
+			sourceCount++
+
+		default:
+			log.Printf("[WARN] Unsupported resource entry (expected .jar/.zip/directory): %s\n", fullPath)
+			continue
+		}
+	}
+
+	if sourceCount == 0 {
+		return nil, closers, fmt.Errorf("no valid .jar/.zip/directory resource sources found in resources list")
+	}
+
+	return entries, closers, nil
+}
+
+// addDirSource は展開済みディレクトリ (例: assets/minecraft/... を含むフォルダ) を
+// 相対パスをキーとして entries へ追加します。
+func addDirSource(root string, entries map[string]fileEntry) error {
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		key := filepath.ToSlash(rel)
+		p := path
+		entries[key] = fileEntry{open: func() (io.ReadCloser, error) {
+			return os.Open(p)
+		}}
+		return nil
+	})
+}
+
+func closeAll(closers []io.Closer) {
+	for _, c := range closers {
+		_ = c.Close()
+	}
+}
+
+// splitNamespacedID は "namespace:path" 形式の文字列を分解します。
+// namespace 省略時は defaultNamespace を使用します。
+func splitNamespacedID(id, defaultNamespace string) (namespace, path string) {
+	if idx := strings.Index(id, ":"); idx != -1 {
+		return id[:idx], id[idx+1:]
+	}
+	return defaultNamespace, id
+}
+
+// ExtractMapColors は resourcePaths (config.json の "resources" 配列) を先頭から順に読み込み、
+// 末尾のソースほど優先して同名パスを上書きしながら色情報を抽出します。
+func ExtractMapColors(resourcePaths []string, jsonPath string) error {
+	entries, closers, err := collectResourceEntries(resourcePaths)
+	if err != nil {
+		return fmt.Errorf("Failed to load resources: %w", err)
+	}
+	defer closeAll(closers)
 
 	colorMapB64 := make(map[string]string)
 
-	// JARからカラーマップ画像の全自動/動的スキャン
-	// (assets/minecraft/textures/colormap/ 内の png をすべて検出)
-	colormapPrefix := "assets/minecraft/textures/colormap/"
-	for path, f := range fileMap {
-		if strings.HasPrefix(path, colormapPrefix) && strings.HasSuffix(path, ".png") {
-			keyName := strings.TrimSuffix(filepath.Base(path), ".png")
-			img := decodeZipImage(f)
-			if img != nil {
-				colorMapB64[keyName] = encodeImageToBase64(img)
-			}
+	// カラーマップ画像の全自動/動的スキャン
+	// assets/<namespace>/textures/colormap/*.png をすべて検出 (namespace は問わない)
+	for path, entry := range entries {
+		parts := strings.Split(path, "/")
+		if len(parts) != 5 || parts[0] != "assets" || parts[2] != "textures" || parts[3] != "colormap" || !strings.HasSuffix(parts[4], ".png") {
+			continue
 		}
+		ns := parts[1]
+		keyName := strings.TrimSuffix(parts[4], ".png")
+
+		img := decodeResourceImage(entry)
+		if img == nil {
+			continue
+		}
+
+		mapKey := keyName
+		if ns != "minecraft" {
+			// minecraft 以外の namespace は名前衝突を避けるため接頭辞を付与
+			mapKey = ns + ":" + keyName
+		}
+		colorMapB64[mapKey] = encodeImageToBase64(img)
 	}
 
 	resultBlocks := make(map[string]BlockColorInfo)
 
-	// 特殊流体ブロック (water / lava) の定義
+	// 特殊流体ブロック (water / lava) の定義 (バニラ固定: minecraft 名前空間)
 	fluidMap := map[string]string{
 		"water": "assets/minecraft/textures/block/water_still.png",
 		"lava":  "assets/minecraft/textures/block/lava_still.png",
 	}
-	for name, jPath := range fluidMap {
-		if f, ok := fileMap[jPath]; ok {
-			avgColor := calculateAverageColor(f)
+	for name, path := range fluidMap {
+		if entry, ok := entries[path]; ok {
+			avgColor := calculateAverageColor(entry)
 			bType := "none"
 			if name == "water" {
 				bType = "water"
@@ -136,26 +247,30 @@ func ExtractMapColors(jarPath, jsonPath string) error {
 	}
 
 	// 各ブロックモデル JSON の解析
-	blockModelPrefix := "assets/minecraft/models/block/"
-	for path := range fileMap {
-		if !strings.HasPrefix(path, blockModelPrefix) || !strings.HasSuffix(path, ".json") {
+	// assets/<namespace>/models/block/*.json をすべて検出 (namespace は問わない)
+	for path := range entries {
+		parts := strings.Split(path, "/")
+		if len(parts) != 5 || parts[0] != "assets" || parts[2] != "models" || parts[3] != "block" || !strings.HasSuffix(parts[4], ".json") {
 			continue
 		}
 
-		blockID := strings.TrimSuffix(filepath.Base(path), ".json")
-		texturePath, err := resolveTexturePath(path, fileMap)
-		if err != nil || texturePath == "" {
+		ns := parts[1]
+		blockName := strings.TrimSuffix(parts[4], ".json")
+		blockID := ns + ":" + blockName
+
+		texNamespace, texPath, err := resolveTexturePath(ns, path, entries)
+		if err != nil || texPath == "" {
 			continue
 		}
 
-		jarTexturePath := fmt.Sprintf("assets/minecraft/textures/%s.png", texturePath)
-		texFile, exists := fileMap[jarTexturePath]
+		jarTexturePath := fmt.Sprintf("assets/%s/textures/%s.png", texNamespace, texPath)
+		texEntry, exists := entries[jarTexturePath]
 		if !exists {
 			continue
 		}
 
-		avgColor := calculateAverageColor(texFile)
-		biomeType := determineBiomeType(blockID)
+		avgColor := calculateAverageColor(texEntry)
+		biomeType := determineBiomeType(blockName)
 
 		resultBlocks[normalizeBlockID(blockID)] = BlockColorInfo{
 			Color:     avgColor,
@@ -170,6 +285,9 @@ func ExtractMapColors(jarPath, jsonPath string) error {
 	}
 
 	jsonData, err := json.MarshalIndent(mapData, "", "  ")
+	if err != nil {
+		return fmt.Errorf("Failed to marshal map_color.json: %w", err)
+	}
 	return os.WriteFile(jsonPath, jsonData, 0644)
 }
 
@@ -221,8 +339,8 @@ func determineBiomeType(blockID string) string {
 	return "none"
 }
 
-func calculateAverageColor(f *zip.File) [4]uint8 {
-	img := decodeZipImage(f)
+func calculateAverageColor(entry fileEntry) [4]uint8 {
+	img := decodeResourceImage(entry)
 	if img == nil {
 		return [4]uint8{128, 128, 128, 255}
 	}
@@ -260,8 +378,8 @@ func calculateAverageColor(f *zip.File) [4]uint8 {
 	}
 }
 
-func decodeZipImage(f *zip.File) image.Image {
-	rc, err := f.Open()
+func decodeResourceImage(entry fileEntry) image.Image {
+	rc, err := entry.open()
 	if err != nil {
 		return nil
 	}
@@ -274,19 +392,22 @@ func decodeZipImage(f *zip.File) image.Image {
 	return img
 }
 
-func resolveTexturePath(modelPath string, fileMap map[string]*zip.File) (string, error) {
+// resolveTexturePath はブロックモデル JSON (namespace 付き) を parent チェーンに沿って解決し、
+// 最終的に使用すべきテクスチャの namespace とパス (拡張子・"assets/<ns>/textures/" を除いた部分) を返します。
+func resolveTexturePath(namespace, modelPath string, entries map[string]fileEntry) (string, string, error) {
 	textures := make(map[string]string)
+	currentNS := namespace
 	currentPath := modelPath
 
 	for i := 0; i < 10; i++ {
-		file, exists := fileMap[currentPath]
+		entry, exists := entries[currentPath]
 		if !exists {
 			break
 		}
 
-		model, err := parseModelJSON(file)
+		model, err := parseModelJSON(entry)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 
 		for k, v := range model.Textures {
@@ -299,12 +420,13 @@ func resolveTexturePath(modelPath string, fileMap map[string]*zip.File) (string,
 			break
 		}
 
-		parentName := strings.TrimPrefix(model.Parent, "minecraft:")
-		currentPath = fmt.Sprintf("assets/minecraft/models/%s.json", parentName)
+		parentNS, parentRest := splitNamespacedID(model.Parent, currentNS)
+		currentNS = parentNS
+		currentPath = fmt.Sprintf("assets/%s/models/%s.json", parentNS, parentRest)
 	}
 
 	if len(textures) == 0 {
-		return "", nil
+		return "", "", nil
 	}
 
 	priorityKeys := []string{"layer0", "top", "all", "side", "texture", "particle"}
@@ -339,11 +461,12 @@ func resolveTexturePath(modelPath string, fileMap map[string]*zip.File) (string,
 		}
 	}
 
-	return strings.TrimPrefix(selectedRaw, "minecraft:"), nil
+	texNS, texPath := splitNamespacedID(selectedRaw, namespace)
+	return texNS, texPath, nil
 }
 
-func parseModelJSON(file *zip.File) (*ModelJSON, error) {
-	rc, err := file.Open()
+func parseModelJSON(entry fileEntry) (*ModelJSON, error) {
+	rc, err := entry.open()
 	if err != nil {
 		return nil, err
 	}
