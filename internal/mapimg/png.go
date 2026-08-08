@@ -1,6 +1,7 @@
 package mapimg
 
 import (
+	"bufio"
 	"fmt"
 	"image"
 	"image/color"
@@ -22,9 +23,16 @@ func savePNG(filePath string, img image.Image, exportMode string) error {
 	}
 	defer f.Close()
 
+	// システムコール回数を減らすため bufio.Writer でラップする
+	w := bufio.NewWriterSize(f, 256*1024)
+	defer w.Flush()
+
 	switch exportMode {
 	case "default":
-		return png.Encode(f, img)
+		if err := png.Encode(w, img); err != nil {
+			return err
+		}
+		return w.Flush()
 	case "compression":
 		// --- ImageMagick: -quantize YUV +dither -colors 256 -type Palette 相当の処理 ---
 		var finalImg image.Image = img
@@ -120,7 +128,10 @@ func savePNG(filePath string, img image.Image, exportMode string) error {
 		encoder := png.Encoder{
 			CompressionLevel: png.BestCompression,
 		}
-		return encoder.Encode(f, finalImg)
+		if err := encoder.Encode(w, finalImg); err != nil {
+			return err
+		}
+		return w.Flush()
 	}
 
 	return fmt.Errorf("invalid export mode")
