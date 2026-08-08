@@ -77,9 +77,22 @@ func savePNG(filePath string, img image.Image, exportMode string) error {
 				return yVal, uVal, vVal
 			}
 
+			// パレット色のYUV値はピクセル数分ループする間ずっと不変のため、
+			// ピクセルごとに再計算せずここで1回だけ変換してキャッシュしておく
+			type paletteYUV struct {
+				y, u, v float64
+				a       uint8
+			}
+			paletteCache := make([]paletteYUV, len(palette))
+			for i, pc := range palette {
+				pr, pg, pb, pa := pc.RGBA()
+				pColor := color.RGBA{R: uint8(pr >> 8), G: uint8(pg >> 8), B: uint8(pb >> 8), A: uint8(pa >> 8)}
+				y, u, v := rgbToYUV(pColor)
+				paletteCache[i] = paletteYUV{y: y, u: u, v: v, a: pColor.A}
+			}
+
 			// YUV距離計算 (輝度Yを重視)
-			yuvDistanceSq := func(c1 color.RGBA, y2, u2, v2 float64) float64 {
-				y1, u1, v1 := rgbToYUV(c1)
+			yuvDistanceSq := func(y1, u1, v1, y2, u2, v2 float64) float64 {
 				dy, du, dv := y1-y2, u1-u2, v1-v2
 				return dy*dy*1.5 + du*du + dv*dv
 			}
@@ -97,13 +110,11 @@ func savePNG(filePath string, img image.Image, exportMode string) error {
 				minDist := math.MaxFloat64
 				bestIdx := 0
 
-				for i, pc := range palette {
-					pr, pg, pb, pa := pc.RGBA()
-					pColor := color.RGBA{R: uint8(pr >> 8), G: uint8(pg >> 8), B: uint8(pb >> 8), A: uint8(pa >> 8)}
-					if math.Abs(float64(c.A)-float64(pColor.A)) > 128 {
+				for i, pc := range paletteCache {
+					if math.Abs(float64(c.A)-float64(pc.a)) > 128 {
 						continue
 					}
-					dist := yuvDistanceSq(pColor, y, u, v)
+					dist := yuvDistanceSq(pc.y, pc.u, pc.v, y, u, v)
 					if dist < minDist {
 						minDist = dist
 						bestIdx = i
