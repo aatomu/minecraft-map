@@ -41,10 +41,18 @@ func savePNG(filePath string, img image.Image, exportMode string) error {
 			bounds := rgba.Bounds()
 
 			// 1. 画像から出現頻度の高い色を中心に256色のパレットを抽出 (-colors 256)
+			//    透明ピクセル(alpha=0)が1つでも存在する場合は、頻度に関わらず
+			//    必ずパレットに1枠確保する(透明色が不透明色に化けるのを防ぐため)
 			colorCount := make(map[color.RGBA]int)
+			hasTransparent := false
 			for y := bounds.Min.Y; y < bounds.Max.Y; y += 2 { // 高速化のためステップサンプリング
 				for x := bounds.Min.X; x < bounds.Max.X; x += 2 {
-					colorCount[rgba.RGBAAt(x, y)]++
+					c := rgba.RGBAAt(x, y)
+					if c.A == 0 {
+						hasTransparent = true
+						continue // 透明色は頻度ランキングに含めず、下で別枠を予約する
+					}
+					colorCount[c]++
 				}
 			}
 
@@ -60,9 +68,15 @@ func savePNG(filePath string, img image.Image, exportMode string) error {
 				return b.count - a.count
 			})
 
+			const maxPaletteSize = 256
 			var palette color.Palette
+			if hasTransparent {
+				// 透明色の予約枠。RGB値は描画結果に影響しない(alpha=0のため)。
+				// これにより、以下の頻度ループでは残り255枠を通常色に割り当てる。
+				palette = append(palette, color.RGBA{R: 0, G: 0, B: 0, A: 0})
+			}
 			for _, f := range freqs {
-				if len(palette) >= 256 {
+				if len(palette) >= maxPaletteSize {
 					break
 				}
 				palette = append(palette, f.col)
