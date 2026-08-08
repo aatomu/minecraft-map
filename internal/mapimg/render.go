@@ -58,7 +58,8 @@ func renderRegion(rootDir string, rPos region.RegionPos, fallback FallbackColors
 
 			chunkBlocks, err := chunk.ParseChunkBlocksDynamic(chunkData.UncompressedData)
 			if err != nil {
-				fillChunkColor(canvas, absChunkX, absChunkZ, rPos.X, rPos.Z, fallback.ReadError)
+				// 読み込み(I/O)エラーとパースエラーはマップ上で見分けられるよう別色にする
+				fillChunkColor(canvas, absChunkX, absChunkZ, rPos.X, rPos.Z, fallback.ParseError)
 				continue
 			}
 
@@ -69,6 +70,9 @@ func renderRegion(rootDir string, rPos region.RegionPos, fallback FallbackColors
 
 					layers = layers[:0]
 					topSolidY := math.MinInt
+					// このカラムで「色未登録のためスキップしたブロック」が1つでもあったかを記録する。
+					// これが false のまま layers が空 = 本当に何もない(air suppressのみ)正常な空洞
+					sawMissingColor := false
 
 					for y := chunkBlocks.MaxY; y >= chunkBlocks.MinY; y-- {
 						b := chunkBlocks.GetBlock(lx, y, lz)
@@ -85,6 +89,7 @@ func renderRegion(rootDir string, rPos region.RegionPos, fallback FallbackColors
 						info, ok := blockColors[cleanName]
 						if !ok {
 							missingBlocksSet[cleanName] = struct{}{}
+							sawMissingColor = true
 							continue
 						}
 
@@ -126,8 +131,12 @@ func renderRegion(rootDir string, rPos region.RegionPos, fallback FallbackColors
 						finalColor := blendLayers(layers)
 						canvas.Set(pixelX, pixelZ, finalColor)
 						heightBuffer[pixelX+imgSize*pixelZ] = int32(topSolidY)
+					} else if sawMissingColor {
+						// ブロック自体は存在したが、色情報が map_color.json に見つからなかったケース
+						canvas.Set(pixelX, pixelZ, fallback.MissingColor)
 					} else {
-						canvas.Set(pixelX, pixelZ, fallback.Other)
+						// 全ブロックがsuppress対象(air等)だった = 奈落等の正常な空洞
+						canvas.Set(pixelX, pixelZ, fallback.Void)
 					}
 				}
 			}

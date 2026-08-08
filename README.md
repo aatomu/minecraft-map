@@ -74,10 +74,24 @@ This image was generated using naturally generated world data from Minecraft Van
     // 未生成チャンクのレンダリングカラー / Rendering color for ungenerated chunks
     // [R,G,B,A]
     "ungenerated": [106, 90, 205, 255],
-    // 読み取りエラーチャンクのレンダリングカラー / Rendering color for chunks with read errors
+    // リージョン/チャンクの読み込み(I/O・解凍)失敗時のレンダリングカラー / Rendering color for region/chunk read (I/O, decompress) failures
     // [R,G,B,A]
     "readError": [255, 0, 0, 255],
-    // その他不明なエラー時のレンダリングカラー / Rendering color for other undentified errors
+    // チャンクNBTのパース失敗(データ破損等)時のレンダリングカラー / Rendering color for chunk NBT parse failures (corrupted data, etc.)
+    // [R,G,B,A]
+    "parseError": [255, 140, 0, 255],
+    // 全ブロックがsuppressBlocks対象(air等)だった、正常な空洞(奈落等)のレンダリングカラー
+    // 既定は完全透明(alpha=0)にし、他のエラー色と混同しないようにしている
+    // Rendering color for a column where every block is a suppressed block (e.g. air) — a genuine void, not an error.
+    // Defaults to fully transparent so it's never confused with the error colors above.
+    // [R,G,B,A]
+    "void": [0, 0, 0, 0],
+    // ブロックは検出できたが mapColorJson に該当する色情報が無かった際のレンダリングカラー
+    // Rendering color for a block that was detected but has no matching entry in mapColorJson
+    // [R,G,B,A]
+    "missingColor": [255, 255, 0, 255],
+    // 上記いずれにも該当しない、予期しない状態のレンダリングカラー(通常は発生しない)
+    // Rendering color for any other unexpected state not covered above (should not normally occur)
     // [R,G,B,A]
     "other": [255, 0, 255, 255]
   },

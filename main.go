@@ -79,9 +79,12 @@ func main() {
 		}
 
 		fallback := mapimg.FallbackColors{
-			Ungenerated: mapimg.ToRGBA(cfg.FallBackColor.Ungenerated),
-			ReadError:   mapimg.ToRGBA(cfg.FallBackColor.ReadError),
-			Other:       mapimg.ToRGBA(cfg.FallBackColor.Other),
+			Ungenerated:  mapimg.ToRGBA(cfg.FallBackColor.Ungenerated),
+			ReadError:    mapimg.ToRGBA(cfg.FallBackColor.ReadError),
+			ParseError:   mapimg.ToRGBA(cfg.FallBackColor.ParseError),
+			Void:         mapimg.ToRGBA(cfg.FallBackColor.Void),
+			MissingColor: mapimg.ToRGBA(cfg.FallBackColor.MissingColor),
+			Other:        mapimg.ToRGBA(cfg.FallBackColor.Other),
 		}
 
 		// 3. suppressBlocksのSet化

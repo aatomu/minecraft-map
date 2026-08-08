@@ -13,9 +13,12 @@ type Config struct {
 }
 
 type ConfigFallbackColor struct {
-	Ungenerated [4]uint8 `json:"ungenerated"` // 未生成
-	ReadError   [4]uint8 `json:"readError"`   // 読み込み/解析エラー
-	Other       [4]uint8 `json:"other"`       // その他(未登録ブロック等)
+	Ungenerated  [4]uint8 `json:"ungenerated"`  // 未生成チャンク
+	ReadError    [4]uint8 `json:"readError"`    // リージョン/チャンクの読み込み(I/O・解凍)失敗
+	ParseError   [4]uint8 `json:"parseError"`   // チャンクNBTのパース失敗(データ破損等)
+	Void         [4]uint8 `json:"void"`         // 全ブロックがsuppress対象(air等)の正常な空洞(既定: 透明)
+	MissingColor [4]uint8 `json:"missingColor"` // ブロックは検出できたが色情報が map_color.json に無い
+	Other        [4]uint8 `json:"other"`        // 上記いずれにも該当しない、予期しない状態(通常は発生しない)
 }
 
 type ConfigExport struct {

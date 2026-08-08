@@ -5,9 +5,12 @@ import "image/color"
 // FallbackColors はチャンク/リージョンを塗りつぶす際に使う代替色です。
 // (旧 main.go の FallbackColors を移設)
 type FallbackColors struct {
-	Ungenerated color.RGBA // 未生成
-	ReadError   color.RGBA // 読み込み/解析エラー
-	Other       color.RGBA // その他(未登録ブロック等)
+	Ungenerated  color.RGBA // 未生成チャンク
+	ReadError    color.RGBA // リージョン/チャンクの読み込み(I/O・解凍)失敗
+	ParseError   color.RGBA // チャンクNBTのパース失敗(データ破損等)
+	Void         color.RGBA // 全ブロックがsuppress対象(air等)で、本来ブロックが存在しない正常な空洞
+	MissingColor color.RGBA // ブロックは検出できたが map_color.json に該当する色情報が無い
+	Other        color.RGBA // 上記いずれにも該当しない、予期しない状態(通常は発生しない)
 }
 
 // ToRGBA は config.json の [4]uint8 表現を color.RGBA に変換します(旧 main.go の toRGBA)
