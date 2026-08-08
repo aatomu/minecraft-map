@@ -1,4 +1,6 @@
-package main
+// Package nbt は Minecraft の NBT (Named Binary Tag) 形式の汎用パーサです。
+// チャンク/リージョン固有の知識は持たず、バイト列を map[string]interface{} へ変換するだけの役割です。
+package nbt
 
 import (
 	"bytes"
@@ -7,29 +9,15 @@ import (
 	"io"
 )
 
-const (
-	TagEnd       byte = 0
-	TagByte      byte = 1
-	TagShort     byte = 2
-	TagInt       byte = 3
-	TagLong      byte = 4
-	TagFloat     byte = 5
-	TagDouble    byte = 6
-	TagByteArray byte = 7
-	TagString    byte = 8
-	TagList      byte = 9
-	TagCompound  byte = 10
-	TagIntArray  byte = 11
-	TagLongArray byte = 12
-)
-
-type NBTParser struct {
+type parser struct {
 	r *bytes.Reader
 }
 
-func parseNBT(data []byte) (map[string]interface{}, error) {
-	parser := &NBTParser{r: bytes.NewReader(data)}
-	tagType, err := parser.r.ReadByte()
+// Parse は NBT バイナリをルート Compound タグとしてパースします。
+// (旧 main パッケージの parseNBT を公開関数化)
+func Parse(data []byte) (map[string]interface{}, error) {
+	p := &parser{r: bytes.NewReader(data)}
+	tagType, err := p.r.ReadByte()
 	if err != nil {
 		return nil, err
 	}
@@ -38,19 +26,19 @@ func parseNBT(data []byte) (map[string]interface{}, error) {
 	}
 
 	// ルートタグの名前を読み飛ばす
-	if _, err := parser.readString(); err != nil {
+	if _, err := p.readString(); err != nil {
 		return nil, err
 	}
 
 	// ルートCompoundの中身をパース
-	val, err := parser.readCompound()
+	val, err := p.readCompound()
 	if err != nil {
 		return nil, err
 	}
 	return val, nil
 }
 
-func (p *NBTParser) readTagValue(tagType byte) (interface{}, error) {
+func (p *parser) readTagValue(tagType byte) (interface{}, error) {
 	switch tagType {
 	case TagEnd:
 		return nil, nil
@@ -140,7 +128,7 @@ func (p *NBTParser) readTagValue(tagType byte) (interface{}, error) {
 	}
 }
 
-func (p *NBTParser) readString() (string, error) {
+func (p *parser) readString() (string, error) {
 	var length uint16
 	if err := binary.Read(p.r, binary.BigEndian, &length); err != nil {
 		return "", err
@@ -152,7 +140,7 @@ func (p *NBTParser) readString() (string, error) {
 	return string(buf), nil
 }
 
-func (p *NBTParser) readCompound() (map[string]interface{}, error) {
+func (p *parser) readCompound() (map[string]interface{}, error) {
 	res := make(map[string]interface{})
 	for {
 		tagType, err := p.r.ReadByte()
@@ -173,34 +161,4 @@ func (p *NBTParser) readCompound() (map[string]interface{}, error) {
 		res[name] = val
 	}
 	return res, nil
-}
-
-// unpackBitArray は小規模データ（バイオーム等）用の一括アンパック関数
-func unpackBitArray(data []int64, bitsPerBlock, count int) []uint32 {
-	result := make([]uint32, count)
-	entriesPerLong := 64 / bitsPerBlock
-	mask := uint64((1 << bitsPerBlock) - 1)
-
-	for i := 0; i < count; i++ {
-		longIndex := i / entriesPerLong
-		subIndex := i % entriesPerLong
-
-		if longIndex >= len(data) {
-			break
-		}
-
-		shift := subIndex * bitsPerBlock
-		value := (uint64(data[longIndex]) >> shift) & mask
-		result[i] = uint32(value)
-	}
-	return result
-}
-
-func bitLen(n uint) int {
-	count := 0
-	for n > 0 {
-		n >>= 1
-		count++
-	}
-	return count
 }

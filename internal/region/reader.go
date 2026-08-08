@@ -1,9 +1,11 @@
-package main
+// Package region は Anvil 形式のリージョンファイル(.mca / .mcc)を読み込み、
+// チャンクごとの生バイト列(解凍済み・未パース)を取り出す責務を持ちます。
+// NBT のパースやブロックへの変換は行いません(internal/nbt, internal/chunk が担当)。
+package region
 
 import (
 	"bytes"
 	"compress/gzip"
-	"compress/zlib"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -11,10 +13,6 @@ import (
 	"os"
 	"path/filepath"
 )
-
-// ErrChunkNotGenerated は該当座標のチャンクがまだ生成されていないことを示すセンチネルエラーです。
-// 「読み込みエラー」と区別するために使用します。
-var ErrChunkNotGenerated = errors.New("chunk has not generated")
 
 type Region struct {
 	file    *os.File
@@ -26,7 +24,7 @@ type RegionPos struct {
 	Z int
 }
 
-func OpenRegion(root string, regionX, regionZ int) (*Region, error) {
+func Open(root string, regionX, regionZ int) (*Region, error) {
 	filePath := filepath.Join(root, fmt.Sprintf("r.%d.%d.mca", regionX, regionZ))
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -103,7 +101,7 @@ func (r *Region) ReadChunk(chunkX, chunkZ int) (*ChunkData, error) {
 	} else {
 		if dataLength <= 1 {
 			return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
-				fmt.Errorf("Invalid data length: %d for chunk (%d, %d)", chunkX, chunkZ, dataLength)
+				fmt.Errorf("Invalid data length: %d for chunk (%d, %d)", dataLength, chunkX, chunkZ)
 		}
 
 		maxAllowedSize := uint32(sectorCount*4096 - 5)
@@ -142,7 +140,7 @@ func (r *Region) ReadChunk(chunkX, chunkZ int) (*ChunkData, error) {
 		var err error
 		uncompressedData, err = decompressZlib(compressedBuf)
 		if err != nil {
-			// 【修正ポイント2】EOFエラー（データ途絶）は破損チャンクとして判定
+			// EOFエラー（データ途絶）は破損チャンクとして判定
 			if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
 				return &ChunkData{X: chunkX, Z: chunkZ, Status: ChunkStatusError},
 					fmt.Errorf("corrupted zlib payload (truncated data) for chunk (%d, %d): %w", chunkX, chunkZ, err)
@@ -197,15 +195,4 @@ func (r *Region) readMCC(chunkX, chunkZ int) ([]byte, error) {
 	}
 
 	return compressedBuf, nil
-}
-
-// Zlibデータを解凍するヘルパー関数
-func decompressZlib(data []byte) ([]byte, error) {
-	reader, err := zlib.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-
-	return io.ReadAll(reader)
 }

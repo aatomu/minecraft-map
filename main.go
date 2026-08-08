@@ -1,61 +1,30 @@
 package main
 
 import (
-	"encoding/json"
-	"image/color"
 	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/aatomu/minecraft-map/internal/block"
+	"github.com/aatomu/minecraft-map/internal/config"
+	"github.com/aatomu/minecraft-map/internal/mapimg"
+	"github.com/aatomu/minecraft-map/internal/region"
+	"github.com/aatomu/minecraft-map/internal/texture"
 )
-
-type Config struct {
-	RegionDir    string   `json:"regionDir"`
-	Resources    []string `json:"resources"` // .jar/.zip/ディレクトリのリスト。先頭=初期値、末尾=上書き後の値
-	MapColorJson string   `json:"mapColorJson"`
-	Export       struct {
-		Dir      string `json:"dir"`
-		Shading  bool   `json:"shading"`
-		ByRegion bool   `json:"byRegion"`
-		Mode     string `json:"mode"`
-	} `json:"export"`
-	FallBackColor struct {
-		Ungenerated [4]uint8 `json:"ungenerated"` // 未生成
-		ReadError   [4]uint8 `json:"readError"`   // 読み込み/解析エラー
-		Other       [4]uint8 `json:"other"`       // その他(未登録ブロック等)
-	} `json:"fallbackColor"`
-	FallbackBlocks map[string]string `json:"fallbackBlocks"`
-	SuppressBlocks []string          `json:"suppressBlocks"`
-}
-
-type FallbackColors struct {
-	Ungenerated color.RGBA // 未生成
-	ReadError   color.RGBA // 読み込み/解析エラー
-	Other       color.RGBA // その他(未登録ブロック等)
-}
-
-var (
-	config Config
-)
-
-func init() {
-	log.Println("[INFO] Starting to load config.json")
-	f, err := os.Open("./config.json")
-	if err != nil {
-		log.Fatalf("[FATAL] Failed to open config.json: %v", err)
-	}
-	defer f.Close()
-
-	decoder := json.NewDecoder(f)
-	err = decoder.Decode(&config)
-	if err != nil {
-		log.Fatalf("[FATAL] Failed to decode config.json: %v", err)
-	}
-	log.Println("[INFO] Success to load config.json")
-}
 
 func main() {
+	start := time.Now()
+	log.Println("[INFO] Starting to load config.json")
+	cfg, err := config.Load("./config.json")
+	if err != nil {
+		log.Fatalf("[FATAL] %v", err)
+	}
+
+	log.Println("[INFO] Success to load config.json")
+
 	if len(os.Args) < 2 {
 		log.Fatalf("[FATAL] Please specify command: 'color' or 'generate'")
 	}
@@ -65,32 +34,32 @@ func main() {
 	switch cmd {
 	case "color":
 		log.Println("[INFO] Starting to parse textures")
-		err := ExtractMapColors(config.Resources, config.MapColorJson)
+		err := texture.ExtractMapColors(cfg.Resources, cfg.MapColorJson)
 		if err != nil {
 			log.Fatalf("[FATAL] Failed to parse textures: %v", err)
 		}
 		log.Println("[INFO] Success to parse textures")
 
 	case "generate":
-		cleanedFallbackBlocks := make(map[string]string, len(config.FallbackBlocks))
-		for k, v := range config.FallbackBlocks {
-			cleanedFallbackBlocks[normalizeBlockID(k)] = normalizeBlockID(v)
+		cleanedFallbackBlocks := make(map[string]string, len(cfg.FallbackBlocks))
+		for k, v := range cfg.FallbackBlocks {
+			cleanedFallbackBlocks[block.Normalize(k)] = block.Normalize(v)
 		}
-		config.FallbackBlocks = cleanedFallbackBlocks
+		cfg.FallbackBlocks = cleanedFallbackBlocks
 
 		// 1. map_color.json を取得
-		blockColor, colorMap, err := LoadMapColors(config.MapColorJson)
+		blockColor, colorMap, err := texture.LoadMapColors(cfg.MapColorJson)
 		if err != nil {
 			log.Fatalf("[FATAL] Failed to read map color: %v", err)
 		}
 
 		// 2. ディレクトリ内の全 .mca ファイルを検出
-		files, err := os.ReadDir(config.RegionDir)
+		files, err := os.ReadDir(cfg.RegionDir)
 		if err != nil {
 			log.Fatalf("[FATAL] Failed to open region directory: %v", err)
 		}
 
-		var regionList []RegionPos
+		var regionList []region.RegionPos
 		for _, f := range files {
 			if f.IsDir() || !strings.HasPrefix(f.Name(), "r.") || !strings.HasSuffix(f.Name(), ".mca") {
 				continue
@@ -100,52 +69,56 @@ func main() {
 				rx, err1 := strconv.Atoi(parts[1])
 				rz, err2 := strconv.Atoi(parts[2])
 				if err1 == nil && err2 == nil {
-					regionList = append(regionList, RegionPos{X: rx, Z: rz})
+					regionList = append(regionList, region.RegionPos{X: rx, Z: rz})
 				}
 			}
 		}
 
 		if len(regionList) == 0 {
-			log.Fatalf("[FATAL] Target region not found in: %s", config.RegionDir)
+			log.Fatalf("[FATAL] Target region not found in: %s", cfg.RegionDir)
 		}
 
-		fallback := FallbackColors{
-			Ungenerated: toRGBA(config.FallBackColor.Ungenerated),
-			ReadError:   toRGBA(config.FallBackColor.ReadError),
-			Other:       toRGBA(config.FallBackColor.Other),
+		fallback := mapimg.FallbackColors{
+			Ungenerated: mapimg.ToRGBA(cfg.FallBackColor.Ungenerated),
+			ReadError:   mapimg.ToRGBA(cfg.FallBackColor.ReadError),
+			Other:       mapimg.ToRGBA(cfg.FallBackColor.Other),
 		}
 
 		// 3. suppressBlocksのSet化
-		suppressMap := make(map[string]bool, len(config.SuppressBlocks))
-		for _, blockID := range config.SuppressBlocks {
-			suppressMap[normalizeBlockID(blockID)] = true
+		suppressMap := make(map[string]bool, len(cfg.SuppressBlocks))
+		for _, blockID := range cfg.SuppressBlocks {
+			suppressMap[block.Normalize(blockID)] = true
 		}
 
 		// 4. config.json の byRegion 設定に基づいて処理を切り替え
-		if config.Export.ByRegion {
+		if cfg.Export.ByRegion {
 			log.Println("[INFO] Mode: Exporting individual region maps...")
-			err = exportMapRegion(
-				config.RegionDir,
+			err = mapimg.ExportRegion(
+				cfg.RegionDir,
 				regionList,
 				fallback,
 				colorMap,
 				blockColor,
 				suppressMap,
-				config.Export.Shading,
-				config.Export.Dir,
+				cfg.FallbackBlocks,
+				cfg.Export.Shading,
+				cfg.Export.Dir,
+				cfg.Export.Mode,
 			)
 		} else {
 			log.Println("[INFO] Mode: Exporting single combined map...")
-			exportPath := filepath.Join(config.Export.Dir, "map.png")
-			err = exportMapFull(
-				config.RegionDir,
+			exportPath := filepath.Join(cfg.Export.Dir, "map.png")
+			err = mapimg.ExportFull(
+				cfg.RegionDir,
 				regionList,
 				fallback,
 				colorMap,
 				blockColor,
 				suppressMap,
-				config.Export.Shading,
+				cfg.FallbackBlocks,
+				cfg.Export.Shading,
 				exportPath,
+				cfg.Export.Mode,
 			)
 		}
 
@@ -158,27 +131,6 @@ func main() {
 	default:
 		log.Fatalf("[FATAL] Unknown command: %s (use 'color' or 'generate')", cmd)
 	}
-}
 
-// normalizeBlockID は namespace 無しの ID に "minecraft:" を付与し、
-// "namespace:blockID" 形式に統一します。既に namespace を含む場合はそのまま返します。
-func normalizeBlockID(id string) string {
-	if !strings.Contains(id, ":") {
-		return "minecraft:" + id
-	}
-	return id
-}
-
-func toRGBA(c [4]uint8) color.RGBA {
-	return color.RGBA{R: c[0], G: c[1], B: c[2], A: c[3]}
-}
-
-func WorldToAbsoluteRegionXZ(blockX, blockZ int) (regionX, regionZ int) {
-	return blockX >> 9, blockZ >> 9 // 1リージョン = 512ブロック (2^9)
-}
-func WorldToAbsoluteChunkXZ(blockX, blockZ int) (chunkX, chunkZ int) {
-	return blockX >> 4, blockZ >> 4 // 1チャンク = 16ブロック (2^4)
-}
-func WorldToChunkRelativePos(blockX, blockZ int) (localX, localZ int) {
-	return (blockX%16 + 16) % 16, (blockZ%16 + 16) % 16
+	log.Printf("[INFO] Program running for : %s", time.Since(start))
 }
