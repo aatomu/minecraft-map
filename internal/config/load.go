@@ -20,5 +20,17 @@ func Load(path string) (*Config, error) {
 	if err := decoder.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to decode %s: %w", path, err)
 	}
+
+	if err = cfg.Export.Validate(); err != nil {
+		return nil, fmt.Errorf("export validate error: %w", err)
+	}
+
 	return &cfg, nil
+}
+
+func (c ConfigExport) Validate() error {
+	if c.Mode != "default" && c.Mode != "compression" {
+		return fmt.Errorf("export.mode must be \"default\" or \"compression\", got %q", c.Mode)
+	}
+	return nil
 }
