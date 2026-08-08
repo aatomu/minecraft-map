@@ -80,7 +80,8 @@ func main() {
 
 		fallback := mapimg.FallbackColors{
 			Ungenerated:  mapimg.ToRGBA(cfg.FallBackColor.Ungenerated),
-			ReadError:    mapimg.ToRGBA(cfg.FallBackColor.ReadError),
+			RegionError:  mapimg.ToRGBA(cfg.FallBackColor.RegionError),
+			ChunkError:   mapimg.ToRGBA(cfg.FallBackColor.ChunkError),
 			ParseError:   mapimg.ToRGBA(cfg.FallBackColor.ParseError),
 			Void:         mapimg.ToRGBA(cfg.FallBackColor.Void),
 			MissingColor: mapimg.ToRGBA(cfg.FallBackColor.MissingColor),

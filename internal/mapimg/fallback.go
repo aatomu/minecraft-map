@@ -6,7 +6,8 @@ import "image/color"
 // (旧 main.go の FallbackColors を移設)
 type FallbackColors struct {
 	Ungenerated  color.RGBA // 未生成チャンク
-	ReadError    color.RGBA // リージョン/チャンクの読み込み(I/O・解凍)失敗
+	RegionError  color.RGBA // リージョンファイル自体が開けない(欠損・破損等)
+	ChunkError   color.RGBA // リージョン内の個別チャンクの読み込み(I/O・解凍)失敗
 	ParseError   color.RGBA // チャンクNBTのパース失敗(データ破損等)
 	Void         color.RGBA // 全ブロックがsuppress対象(air等)で、本来ブロックが存在しない正常な空洞
 	MissingColor color.RGBA // ブロックは検出できたが map_color.json に該当する色情報が無い

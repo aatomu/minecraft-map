@@ -18,7 +18,13 @@
       205,
       255
     ],
-    "readError": [
+    "regionError": [
+      178,
+      34,
+      34,
+      255
+    ],
+    "chunkError": [
       255,
       0,
       0,

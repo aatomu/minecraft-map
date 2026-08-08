@@ -14,7 +14,8 @@ type Config struct {
 
 type ConfigFallbackColor struct {
 	Ungenerated  [4]uint8 `json:"ungenerated"`  // 未生成チャンク
-	ReadError    [4]uint8 `json:"readError"`    // リージョン/チャンクの読み込み(I/O・解凍)失敗
+	RegionError  [4]uint8 `json:"regionError"`  // リージョンファイル自体が開けない(欠損・破損等)
+	ChunkError   [4]uint8 `json:"chunkError"`   // リージョン内の個別チャンクの読み込み(I/O・解凍)失敗
 	ParseError   [4]uint8 `json:"parseError"`   // チャンクNBTのパース失敗(データ破損等)
 	Void         [4]uint8 `json:"void"`         // 全ブロックがsuppress対象(air等)の正常な空洞(既定: 透明)
 	MissingColor [4]uint8 `json:"missingColor"` // ブロックは検出できたが色情報が map_color.json に無い

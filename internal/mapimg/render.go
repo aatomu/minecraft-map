@@ -31,7 +31,9 @@ func renderRegion(rootDir string, rPos region.RegionPos, fallback FallbackColors
 
 	reg, err := region.Open(rootDir, rPos.X, rPos.Z)
 	if err != nil {
-		fillRegionColor(canvas, rPos, rPos.X, rPos.Z, fallback.ReadError)
+		// リージョンファイル自体が開けない(ファイル欠損・破損等)ケースは
+		// チャンク単位の読み込み失敗と区別できるよう別色にする
+		fillRegionColor(canvas, rPos, rPos.X, rPos.Z, fallback.RegionError)
 		return &RegionRenderResult{Pos: rPos, Img: canvas, HeightMap: heightBuffer}, nil
 	}
 	defer reg.Close()
@@ -49,7 +51,7 @@ func renderRegion(rootDir string, rPos region.RegionPos, fallback FallbackColors
 				switch chunkData.Status {
 				case region.ChunkStatusError:
 					log.Printf("[WARN] %d,%d in r.%d.%d.mca read error: %v\n", absChunkX, absChunkZ, rPos.X, rPos.Z, err)
-					fillChunkColor(canvas, absChunkX, absChunkZ, rPos.X, rPos.Z, fallback.ReadError)
+					fillChunkColor(canvas, absChunkX, absChunkZ, rPos.X, rPos.Z, fallback.ChunkError)
 				case region.ChunkStatusNotGenerated:
 					fillChunkColor(canvas, absChunkX, absChunkZ, rPos.X, rPos.Z, fallback.Ungenerated)
 				}
