@@ -7,16 +7,16 @@ import (
 )
 
 // applyShading: 行優先アクセス(z外側, x内側)へ変更し、キャッシュ効率を最適化
-func applyShading(canvas *image.RGBA, heightBuffer []int, width, height int) {
+func applyShading(canvas *image.RGBA, heightBuffer []int32, width, height int) {
 	for z := 0; z < height; z++ {
 		for x := 0; x < width; x++ {
 			currY := heightBuffer[x+width*z]
-			if currY == math.MinInt {
+			if currY == math.MinInt32 {
 				continue
 			}
 
 			northY := currY
-			if z > 0 && heightBuffer[x+(width*(z-1))] != math.MinInt {
+			if z > 0 && heightBuffer[x+(width*(z-1))] != math.MinInt32 {
 				northY = heightBuffer[x+(width*(z-1))]
 			}
 

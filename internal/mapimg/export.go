@@ -93,7 +93,8 @@ func ExportFull(rootDir string, regionList []region.RegionPos, fallback Fallback
 	log.Printf("[INFO] Combined Image size: %dx%d px\n", imgWidth, imgHeight)
 
 	canvas := image.NewRGBA(image.Rect(0, 0, imgWidth, imgHeight))
-	fullHeightBuffer := slices.Repeat([]int{math.MinInt}, imgWidth*imgHeight)
+	// int(8byte) ではなく int32(4byte) にすることで、巨大マップでのメモリ使用量を半減させる
+	fullHeightBuffer := slices.Repeat([]int32{math.MinInt32}, imgWidth*imgHeight)
 
 	// Parrallel Control
 	numWorkers := runtime.NumCPU()

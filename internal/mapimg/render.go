@@ -18,7 +18,7 @@ import (
 type RegionRenderResult struct {
 	Pos           region.RegionPos
 	Img           *image.RGBA
-	HeightMap     []int
+	HeightMap     []int32 // 高さは int32 で十分なため、メモリ節約のため int ではなく int32 を使用
 	MissingBlocks []string
 }
 
@@ -27,7 +27,7 @@ type RegionRenderResult struct {
 func renderRegion(rootDir string, rPos region.RegionPos, fallback FallbackColors, colorMap map[string]image.Image, blockColors map[string]texture.BlockColorInfo, suppressMap map[string]bool, fallbackBlocks map[string]string) (*RegionRenderResult, error) {
 	imgSize := 512
 	canvas := image.NewRGBA(image.Rect(0, 0, imgSize, imgSize))
-	heightBuffer := slices.Repeat([]int{math.MinInt}, imgSize*imgSize)
+	heightBuffer := slices.Repeat([]int32{math.MinInt32}, imgSize*imgSize)
 
 	reg, err := region.Open(rootDir, rPos.X, rPos.Z)
 	if err != nil {
@@ -37,6 +37,8 @@ func renderRegion(rootDir string, rPos region.RegionPos, fallback FallbackColors
 	defer reg.Close()
 
 	missingBlocksSet := make(map[string]struct{})
+	// ピクセルごとに再確保しないよう、ループ外で使い回すバッファを用意する
+	layers := make([]color.RGBA, 0, 8)
 	for cz := 0; cz < 32; cz++ {
 		for cx := 0; cx < 32; cx++ {
 			absChunkX := rPos.X*32 + cx
@@ -65,7 +67,7 @@ func renderRegion(rootDir string, rPos region.RegionPos, fallback FallbackColors
 					pixelX := cx*16 + lx
 					pixelZ := cz*16 + lz
 
-					var layers []color.RGBA
+					layers = layers[:0]
 					topSolidY := math.MinInt
 
 					for y := chunkBlocks.MaxY; y >= chunkBlocks.MinY; y-- {
@@ -123,7 +125,7 @@ func renderRegion(rootDir string, rPos region.RegionPos, fallback FallbackColors
 					if len(layers) > 0 {
 						finalColor := blendLayers(layers)
 						canvas.Set(pixelX, pixelZ, finalColor)
-						heightBuffer[pixelX+imgSize*pixelZ] = topSolidY
+						heightBuffer[pixelX+imgSize*pixelZ] = int32(topSolidY)
 					} else {
 						canvas.Set(pixelX, pixelZ, fallback.Other)
 					}
