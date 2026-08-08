@@ -25,6 +25,9 @@ func ExportRegion(rootDir string, regionList []region.RegionPos, fallback Fallba
 	}
 
 	numWorkers := runtime.NumCPU()
+	if numWorkers < 1 {
+		numWorkers = 1
+	}
 	log.Printf("[INFO] Processing individual regions in parallel (%d workers)...\n", numWorkers)
 
 	sem := make(chan struct{}, numWorkers)
@@ -98,6 +101,9 @@ func ExportFull(rootDir string, regionList []region.RegionPos, fallback Fallback
 
 	// Parrallel Control
 	numWorkers := runtime.NumCPU()
+	if numWorkers < 1 {
+		numWorkers = 1
+	}
 	sem := make(chan struct{}, numWorkers)
 	var wg sync.WaitGroup
 	var completed int32 = 0
