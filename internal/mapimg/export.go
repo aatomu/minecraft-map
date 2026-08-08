@@ -34,6 +34,9 @@ func ExportRegion(rootDir string, regionList []region.RegionPos, fallback Fallba
 	var wg sync.WaitGroup
 	var completed int32 = 0
 
+	var missingMu sync.Mutex
+	allMissingBlocksSet := make(map[string]struct{})
+
 	for _, rPos := range regionList {
 		wg.Add(1)
 		sem <- struct{}{}
@@ -60,11 +63,38 @@ func ExportRegion(rootDir string, regionList []region.RegionPos, fallback Fallba
 			if err := savePNG(outPath, res.Img, exportMode); err != nil {
 				log.Printf("[ERROR] Failed to save r.%d.%d.png: %v\n", rPos.X, rPos.Z, err)
 			}
+
+			// このリージョンで発生した未登録ブロックを集計
+			if len(res.MissingBlocks) > 0 {
+				missingMu.Lock()
+				for _, blockID := range res.MissingBlocks {
+					allMissingBlocksSet[blockID] = struct{}{}
+				}
+				missingMu.Unlock()
+			}
 		}(rPos)
 	}
 
 	wg.Wait()
+
+	// 最後に全リージョンの未登録ブロック一覧をログ表示
+	logAllMissingBlocks(allMissingBlocksSet)
+
 	return nil
+}
+
+// logAllMissingBlocks は全リージョンを通して集計した未登録ブロック一覧を
+// ソートした上でまとめてログ出力します(ExportRegion / ExportFull 共通)。
+func logAllMissingBlocks(allMissingBlocksSet map[string]struct{}) {
+	if len(allMissingBlocksSet) == 0 {
+		return
+	}
+	globalMissingList := make([]string, 0, len(allMissingBlocksSet))
+	for k := range allMissingBlocksSet {
+		globalMissingList = append(globalMissingList, k)
+	}
+	slices.Sort(globalMissingList)
+	log.Printf("[WARN] All missing color blocks in world (%d types): %v\n", len(globalMissingList), globalMissingList)
 }
 
 // ExportFull は全リージョンを並列処理後に結合し、1枚の巨大な PNG マップとして出力します(旧 exportMapFull)。
@@ -159,15 +189,7 @@ func ExportFull(rootDir string, regionList []region.RegionPos, fallback Fallback
 	}
 
 	// 3. 最後に全リージョンの未登録ブロック一覧をログ表示
-	if len(allMissingBlocksSet) > 0 {
-		var globalMissingList []string
-		for k := range allMissingBlocksSet {
-			globalMissingList = append(globalMissingList, k)
-		}
-		// ソート表示
-		slices.Sort(globalMissingList)
-		log.Printf("[WARN] All missing color blocks in world (%d types): %v\n", len(globalMissingList), globalMissingList)
-	}
+	logAllMissingBlocks(allMissingBlocksSet)
 
 	// 結合後の全体バッファを用いて境目も含めて綺麗にシェーディング
 	if shading {

@@ -150,7 +150,8 @@ func renderRegion(rootDir string, rPos region.RegionPos, fallback FallbackColors
 		for k := range missingBlocksSet {
 			missingList = append(missingList, k)
 		}
-		log.Printf("[WARN] r.%d.%d.mca missing blocks: %v\n", rPos.X, rPos.Z, missingList)
+		slices.Sort(missingList)
+		log.Printf("[WARN] r.%d.%d.mca missing blocks (%d types): %v\n", rPos.X, rPos.Z, len(missingList), missingList)
 	}
 
 	return &RegionRenderResult{
