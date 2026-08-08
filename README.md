@@ -33,7 +33,7 @@ This image was generated using naturally generated world data from Minecraft Van
 多分動作する / Should work on:
 
 - Minecraft Java Edition: 1.5+
-  (ブロックID仕様の都合上、v1.13+のワールドデータでの利用を推奨 / Recommended v1.13+ for full block-state support)
+  (ブロック ID 仕様の都合上、v1.13+のワールドデータでの利用を推奨 / Recommended v1.13+ for full block-state support)
 - Go: 1.21+
 
 ## Getting Started
@@ -68,7 +68,7 @@ This image was generated using naturally generated world data from Minecraft Van
     "byRegion": false,
     // PNGファイルの出力モード / PNG file output mode
     // "default" | "compression"
-    "mode": "default",
+    "mode": "default"
   },
   "fallbackColor": {
     // 未生成チャンクのレンダリングカラー / Rendering color for ungenerated chunks
@@ -123,6 +123,25 @@ Run the following command
 ```bash
 go run . color
 ```
+
+#### `export.mode` について / About `export.mode`
+
+- **`default`**: 可逆圧縮のフルカラー(RGBA)PNG として出力します。色の劣化や透過の欠落は一切発生しませんが、ファイルサイズは大きくなります。  
+  Outputs a fully lossless full-color (RGBA) PNG. There is no color degradation or loss of transparency, but the file size is larger.
+
+- **`compression`**: ImageMagick の `-quantize YUV +dither -colors 256 -type Palette` に相当する疑似パレット化を行い、最大 256 色のパレット PNG(color-type 3)として出力します。ファイルサイズは大幅に削減されますが、以下の制約があります。  
+  Performs pseudo palette quantization equivalent to ImageMagick's `-quantize YUV +dither -colors 256 -type Palette`, producing a palette PNG (color-type 3) with at most 256 colors. This greatly reduces file size, but comes with the following trade-offs.
+
+  - **色味の変動が発生します(不可逆)** / **Color shift occurs (lossy)**  
+    出現頻度の高い上位 256 色のみがパレットに残り、それ以外の色は最も近い色に置き換えられます。特に `shading` を有効にしている場合、影の濃淡のグラデーションが 256 色に集約しきれず、階調(バンディング)が視認できる場合があります。  
+    Only the 256 most frequent colors are kept in the palette; every other color is replaced by its nearest match. Especially when `shading` is enabled, the shading gradient may not fit entirely within 256 colors, and visible banding can occur.
+
+  - **透過(アルファ)は対応していますが、パレット枠は保証されません** / **Transparency (alpha) is supported, but a palette slot is not guaranteed**  
+    PNG Paletted 形式(`tRNS`チャンク)による透過自体には対応しています。ただし、パレットの 256 色は画像中の出現頻度が高い順に機械的に選出されるだけで、`fallbackColor.void`(既定は完全透明)のような透明ピクセルを優先的にパレットへ確保する処理は行われません。そのため、透明ピクセルの出現数が他の色に比べて少ない画像では、透明色がそもそもパレットに含まれず、本来透明であるべき箇所が最も近い不透明色に置き換わってしまう場合があります。また、水やガラス等の半透明ブロックが多用され、かつ完全透明(alpha=0)ピクセルの絶対量が少ない画像では、パレット中で透明・半透明色に割ける枠はごくわずかです。そのため、深度や重なりによって生じる半透明色の濃淡差(例: 深い水と浅い水の alpha 差)は限られた枠を奪い合う形になり、`default`モードに比べて階調が粗くなります。  
+    Transparency via the PNG palette format's `tRNS` chunk is supported in principle. However, the 256 palette colors are chosen mechanically by pixel frequency alone, and there is no logic that reserves a slot for transparent pixels such as `fallbackColor.void` (transparent by default). As a result, if transparent pixels are rare compared to other colors in the image, the transparent color may not make it into the palette at all, and pixels that should be transparent can be replaced by the nearest opaque color instead. In addition, when semi-transparent blocks like water or glass are heavily used and truly transparent (alpha=0) pixels are rare, only a handful of palette slots end up available for transparent/semi-transparent colors. As a result, alpha gradations caused by depth or overlap (e.g. the alpha difference between deep and shallow water) compete for these limited slots and appear coarser than in `default` mode.
+
+  - 色の正確性や透過の完全性を優先する場合は `default` を、ファイルサイズを優先する場合は `compression` を選択してください。  
+    Choose `default` when color accuracy and full transparency matter most, and `compression` when file size is the priority.
 
 ### 3. ワールドマップの出力 / Generate world map
 
