@@ -25,14 +25,15 @@ This image was generated using naturally generated world data from Minecraft Van
 
 ## Development Environment
 
-Tested with:
+テスト済み / Tested with:
 
-- Minecraft Java Edition: 1.21.8, 1.21.11, 26.1
+- Minecraft Java Edition: 1.10.2, 1.21.8, 1.21.11, 26.1
 - Go: 1.26.4
 
-Should work on:
+多分動作する / Should work on:
 
-- Minecraft Java Edition: 1.13+
+- Minecraft Java Edition: 1.5+
+  (ブロックID仕様の都合上、v1.13+のワールドデータでの利用を推奨 / Recommended v1.13+ for full block-state support)
 - Go: 1.21+
 
 ## Getting Started

@@ -52,6 +52,41 @@ type SectionData struct {
 	Data         []int64 // 圧縮ビット配列 raw データ
 	BitsPerBlock int     // エントリあたりのビット数
 	LegacyPack   bool    // true の場合、エントリがlong境界をまたぐ旧(〜1.15)形式として読む
+
+	// --- 1.13未満(数値ID+メタデータ形式)専用フィールド ---
+	IsNumeric     bool   // true の場合、Palette ではなく数値ID+メタデータ形式として扱う
+	NumericBlocks []byte // "Blocks" タグ: 4096要素、ブロックIDの下位8bit
+	NumericAdd    []byte // "Add" タグ (任意): 2048要素のnibble配列、ブロックIDの上位4bit拡張
+	NumericData   []byte // "Data" タグ: 2048要素のnibble配列、メタデータ(0-15)
+}
+
+// getNibble はnibble配列(1バイトに2要素を詰めた配列)から指定インデックスの4bit値を取り出します
+func getNibble(arr []byte, i int) int {
+	if arr == nil {
+		return 0
+	}
+	byteIdx := i / 2
+	if byteIdx >= len(arr) {
+		return 0
+	}
+	if i%2 == 0 {
+		return int(arr[byteIdx] & 0x0F)
+	}
+	return int(arr[byteIdx] >> 4 & 0x0F)
+}
+
+// GetNumericBlock は 1.13未満 の数値ID+メタデータ形式のセクションから
+// 指定インデックス(0..4095)のブロックを解決します。
+func (s *SectionData) GetNumericBlock(i int) Block {
+	if i < 0 || i >= len(s.NumericBlocks) {
+		return Block{Name: "minecraft:air"}
+	}
+	id := int(s.NumericBlocks[i])
+	if s.NumericAdd != nil {
+		id |= getNibble(s.NumericAdd, i) << 8
+	}
+	meta := getNibble(s.NumericData, i)
+	return legacyBlockFromIDMeta(id, meta)
 }
 
 // GetIndexAt は指定されたブロックインデックス(0..4095)のパレット番号をオンデマンドで直接計算します
@@ -112,7 +147,21 @@ func (c *ChunkBlocksDynamic) GetBlock(x, y, z int) Block {
 
 	sectionY := int8(y >> 4)
 	sec, ok := c.Sections[sectionY]
-	if !ok || len(sec.Palette) == 0 {
+	if !ok {
+		return Block{Name: "minecraft:air"}
+	}
+
+	localY := y & 15
+	localX := x & 15
+	localZ := z & 15
+	blockIdx := localY*256 + localZ*16 + localX
+
+	// 1.13未満: 数値ID+メタデータ形式
+	if sec.IsNumeric {
+		return sec.GetNumericBlock(blockIdx)
+	}
+
+	if len(sec.Palette) == 0 {
 		return Block{Name: "minecraft:air"}
 	}
 
@@ -122,11 +171,6 @@ func (c *ChunkBlocksDynamic) GetBlock(x, y, z int) Block {
 	}
 
 	// 2. 複数パレットの場合、 GetIndexAt で必要な箇所のみオンデマンド解凍
-	localY := y & 15
-	localX := x & 15
-	localZ := z & 15
-	blockIdx := localY*256 + localZ*16 + localX
-
 	paletteIdx := sec.GetIndexAt(blockIdx)
 	if int(paletteIdx) < len(sec.Palette) {
 		return sec.Palette[paletteIdx]
@@ -149,7 +193,8 @@ func (c *ChunkBlocksDynamic) GetBiome(x, y, z int) string {
 
 // ParseChunkBlocksDynamic はチャンクのNBTを解析します。
 // ルート直下に "sections" があれば 1.18+ 形式、"Level" タグでラップされていれば
-// 1.13〜1.17 形式として自動判定します。
+// 1.13〜1.17 形式(セクションに "Palette" あり)または 1.12.2以下 形式
+// (セクションに数値IDの "Blocks"/"Data"/"Add" あり)として自動判定します。
 func ParseChunkBlocksDynamic(uncompressedNBT []byte) (*ChunkBlocksDynamic, error) {
 	rawData, err := parseNBT(uncompressedNBT)
 	if err != nil {
@@ -170,7 +215,7 @@ func ParseChunkBlocksDynamic(uncompressedNBT []byte) (*ChunkBlocksDynamic, error
 		return parseChunkLevelLegacy(level, dataVersion)
 	}
 
-	return nil, fmt.Errorf("sections/Level tag not found (possibly an unsupported version)")
+	return nil, fmt.Errorf("sections/Level タグが見つかりません (対応バージョン外の可能性があります)")
 }
 
 // parseChunkSectionsModern は 1.18 以降のフラット化された sections 形式を解析します
@@ -249,7 +294,7 @@ func parseChunkSectionsModern(sections []interface{}) (*ChunkBlocksDynamic, erro
 	}
 
 	if len(parsedSections) == 0 {
-		return nil, fmt.Errorf("no valid sections exist")
+		return nil, fmt.Errorf("有効なセクションが存在しません")
 	}
 
 	minY := minSectionY * 16
@@ -267,7 +312,7 @@ func parseChunkSectionsModern(sections []interface{}) (*ChunkBlocksDynamic, erro
 func parseChunkLevelLegacy(level map[string]interface{}, dataVersion int32) (*ChunkBlocksDynamic, error) {
 	sectionsRaw, ok := level["Sections"].([]interface{})
 	if !ok || len(sectionsRaw) == 0 {
-		return nil, fmt.Errorf("Sections tag not found")
+		return nil, fmt.Errorf("Sectionsタグが見つかりません")
 	}
 
 	// 1.16 (20w17a, DataVersion 2529) 以降は long境界をまたがない新形式のビットパック、
@@ -297,7 +342,7 @@ func parseChunkLevelLegacy(level map[string]interface{}, dataVersion int32) (*Ch
 			maxSectionY = int(sectionY)
 		}
 
-		secData, ok := parseBlockStateSection(sectionY, section["Palette"], section["BlockStates"], legacyPack)
+		secData, ok := parseLegacySection(section, sectionY, legacyPack)
 		if !ok {
 			continue
 		}
@@ -306,7 +351,7 @@ func parseChunkLevelLegacy(level map[string]interface{}, dataVersion int32) (*Ch
 	}
 
 	if len(parsedSections) == 0 {
-		return nil, fmt.Errorf("no valid sections exist")
+		return nil, fmt.Errorf("有効なセクションが存在しません")
 	}
 
 	minY := minSectionY * 16
@@ -320,6 +365,31 @@ func parseChunkLevelLegacy(level map[string]interface{}, dataVersion int32) (*Ch
 		Sections: parsedSections,
 		Biomes:   biomesMapResult,
 	}, nil
+}
+
+// parseLegacySection は "Level.Sections" の1要素を解析します。
+// "Palette" タグがあれば 1.13〜1.17 のフラット化済み形式、
+// 無く "Blocks" タグがあれば 1.12.2以下 の数値ID+メタデータ形式として扱います。
+func parseLegacySection(section map[string]interface{}, sectionY int8, legacyPack bool) (*SectionData, bool) {
+	if _, hasPalette := section["Palette"]; hasPalette {
+		return parseBlockStateSection(sectionY, section["Palette"], section["BlockStates"], legacyPack)
+	}
+
+	blocksRaw, ok := section["Blocks"].([]byte)
+	if !ok || len(blocksRaw) == 0 {
+		return nil, false
+	}
+
+	dataRaw, _ := section["Data"].([]byte)
+	addRaw, _ := section["Add"].([]byte)
+
+	return &SectionData{
+		Y:             sectionY,
+		IsNumeric:     true,
+		NumericBlocks: blocksRaw,
+		NumericData:   dataRaw,
+		NumericAdd:    addRaw,
+	}, true
 }
 
 // parseBlockStateSection は Palette/BlockStates(またはblock_states.palette/data) 相当のタグから
